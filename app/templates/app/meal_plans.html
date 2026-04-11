@@ -1,0 +1,162 @@
+{% extends "app/base.html" %}
+{% load custom_filters %}
+{% block title %}Thuc don — Noi Tro AI{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h2><i class="bi bi-calendar3 me-2" style="color:var(--primary)"></i>Ke hoach thuc don</h2>
+    <p>Lap ke hoach bua an hang ngay</p>
+  </div>
+  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addPlanModal">
+    <i class="bi bi-plus-lg me-1"></i> Them thuc don
+  </button>
+</div>
+
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <a href="?year={{ prev_year }}&month={{ prev_month }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="fw-600 fs-6">{{ month_name }} {{ year }}</span>
+    <a href="?year={{ next_year }}&month={{ next_month }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+  <div class="p-3">
+    <div class="row g-1 mb-1">
+      {% for day in "T2,T3,T4,T5,T6,T7,CN"|split:"," %}
+      <div class="col text-center" style="font-size:.75rem;font-weight:600;color:#888">{{ day }}</div>
+      {% endfor %}
+    </div>
+    {% for week in calendar %}
+    <div class="row g-1 mb-1">
+      {% for d in week %}
+      <div class="col">
+        {% if d == 0 %}
+        <div class="calendar-day other-month"></div>
+        {% else %}
+        <div class="calendar-day {% if d == today.day and month == today.month and year == today.year %}today{% endif %}"
+             onclick="openAddForDate('{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}')"
+             style="cursor:pointer">
+          <div class="calendar-day-num">{{ d }}</div>
+          <div id="day-{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}"></div>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="modal fade" id="addPlanModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Them thuc don</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Ngay</label>
+          <input type="date" class="form-control" id="plan-date" value="{{ today_str }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Bua an</label>
+          <select class="form-select" id="plan-meal-type">
+            {% for v, l in meal_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tim mon an</label>
+          <input type="text" class="form-control mb-1" placeholder="Go de tim..." id="plan-food-search" oninput="filterPlanFoods(this.value)">
+          <select class="form-select" id="plan-food" size="5">
+            {% for food in foods %}
+            <option value="{{ food.id }}">{{ food.name }} ({{ food.calories|floatformat:0 }} kcal)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">So khau phan</label>
+          <input type="number" class="form-control" id="plan-servings" value="1" min="0.5" step="0.5">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Ghi chu</label>
+          <input type="text" class="form-control" id="plan-notes" placeholder="Tuy chon...">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Huy</button>
+        <button class="btn btn-success" onclick="addPlan()">Them vao thuc don</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var plansByDate = {{ plans_by_date_json|safe }};
+var mealColors = {
+  'Bua sang': 'bg-warning text-dark',
+  'Bua trua': 'bg-success text-white',
+  'Bua toi': 'bg-primary text-white',
+  'Bua phu': 'bg-secondary text-white',
+};
+
+Object.entries(plansByDate).forEach(function(entry) {
+  var dateKey = entry[0];
+  var plans = entry[1];
+  var el = document.getElementById('day-' + dateKey);
+  if (!el) return;
+  plans.forEach(function(p) {
+    var span = document.createElement('span');
+    span.className = 'plan-badge ' + (mealColors[p.meal_type] || 'bg-secondary text-white');
+    span.textContent = p.food;
+    span.title = p.meal_type + ': ' + p.food;
+    el.appendChild(span);
+  });
+});
+
+function openAddForDate(dateStr) {
+  document.getElementById('plan-date').value = dateStr;
+  new bootstrap.Modal(document.getElementById('addPlanModal')).show();
+}
+
+var allFoodOptions = Array.from(document.getElementById('plan-food').options).map(function(o) {
+  return {value: o.value, text: o.text};
+});
+
+function filterPlanFoods(q) {
+  var sel = document.getElementById('plan-food');
+  var lq = q.toLowerCase();
+  sel.innerHTML = allFoodOptions
+    .filter(function(o) { return o.text.toLowerCase().includes(lq); })
+    .map(function(o) { return '<option value="' + o.value + '">' + o.text + '</option>'; })
+    .join('');
+}
+
+async function addPlan() {
+  var data = {
+    date: document.getElementById('plan-date').value,
+    meal_type: document.getElementById('plan-meal-type').value,
+    food_id: document.getElementById('plan-food').value,
+    servings: document.getElementById('plan-servings').value,
+    notes: document.getElementById('plan-notes').value,
+  };
+  if (!data.food_id) return alert('Vui long chon mon an');
+  var res = await fetch('/api/meal-plan/add/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+    body: JSON.stringify(data)
+  });
+  if (res.ok) location.reload();
+  else alert('Co loi xay ra.');
+}
+
+function getCsrf() {
+  return document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+}
+</script>
+{% endblock %}

@@ -1,27 +1,65 @@
-# Workspace
+# Noi Tro AI
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+"Noi Tro AI" - Smart Vietnamese home cooking assistant powered by Django and Gemini AI.
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Backend**: Django 5.2 (Python 3.11)
+- **Frontend**: HTML, CSS (Bootstrap 5), JavaScript
+- **Database**: SQLite (development), PostgreSQL (production via DATABASE_URL)
+- **AI**: Google Gemini via Replit AI Integrations
+- **Static files**: WhiteNoise
+
+## Project Structure
+
+```
+/
+├── manage.py
+├── seed_data.py
+├── noi_tro_ai/          # Django project config
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+└── app/                 # Main Django app
+    ├── models.py        # UserProfile, Food, MealPlan, NutritionLog, ChatMessage
+    ├── views.py         # Page views + API endpoints
+    ├── urls.py          # URL routing
+    ├── templatetags/
+    │   └── custom_filters.py
+    ├── templates/app/   # HTML templates (Bootstrap 5)
+    │   ├── base.html
+    │   ├── dashboard.html
+    │   ├── chat.html
+    │   ├── meal_plans.html
+    │   ├── nutrition.html
+    │   ├── foods.html
+    │   └── profile.html
+    └── static/          # Static CSS/JS files
+```
 
 ## Key Commands
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+- `python3 manage.py runserver 0.0.0.0:8000` — run dev server
+- `python3 manage.py makemigrations` — create migrations
+- `python3 manage.py migrate` — apply migrations
+- `python3 seed_data.py` — seed food database
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Features
+
+- Dashboard with nutrition overview
+- AI chat assistant (Gemini) for meal suggestions
+- Meal planning calendar
+- Nutrition tracking with charts
+- Food database with search/filter
+- Health profile management
+
+## URL Routes
+
+- `/` — Dashboard
+- `/chat/` — AI chat
+- `/thuc-don/` — Meal plans
+- `/theo-doi/` — Nutrition tracking
+- `/mon-an/` — Food database
+- `/ho-so/` — Health profile

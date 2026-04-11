@@ -1,0 +1,134 @@
+{% extends "app/base.html" %}
+{% block title %}Tro ly AI — Noi Tro AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2><i class="bi bi-chat-dots me-2" style="color:var(--primary)"></i>Tro ly AI</h2>
+  <p>Hoi ve dinh duong, mon an, thuc don — toi luon san sang giup!</p>
+</div>
+
+<div class="card-custom" style="max-width:800px;margin:0 auto">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot me-2 text-success"></i>Noi Tro AI</span>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearChat()">
+      <i class="bi bi-trash"></i> Xoa lich su
+    </button>
+  </div>
+
+  <div id="chat-messages" style="background:#fafafa;border-bottom:1px solid #eee">
+    <div id="empty-state" class="text-center py-4" style="color:#aaa;display:none">
+      <i class="bi bi-chat-heart" style="font-size:2.5rem;color:#c8e6c9"></i>
+      <p class="mt-2 mb-0" style="font-size:.9rem">Xin chao! Toi la Noi Tro AI.<br>Hay hoi toi ve mon an, dinh duong, hay thuc don nhe!</p>
+    </div>
+    <div class="chat-typing d-flex align-items-center gap-2 mb-2" id="typing-indicator">
+      <div style="width:28px;height:28px;border-radius:50%;background:#e8f5e9;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="bi bi-robot text-success" style="font-size:.75rem"></i>
+      </div>
+      <div class="chat-bubble-ai d-flex align-items-center gap-1" style="padding:.5rem .75rem">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="p-3">
+    <form id="chat-form" class="d-flex gap-2">
+      {% csrf_token %}
+      <input type="text" id="chat-input" class="form-control" placeholder="Nhap cau hoi ve mon an, dinh duong..." autocomplete="off">
+      <button type="submit" class="btn btn-success px-3" id="send-btn">
+        <i class="bi bi-send"></i>
+      </button>
+    </form>
+    <div class="mt-2 d-flex gap-2 flex-wrap">
+      <button class="btn btn-sm btn-outline-secondary" onclick="quickSend('Goi y bua sang lanh manh cho toi')">Bua sang</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="quickSend('Thuc don giam can trong 1 tuan')">Giam can</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="quickSend('Mon an giau protein cho nguoi tap gym')">Gym</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="quickSend('Goi y bua toi cho gia dinh 4 nguoi')">Gia dinh</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script>
+marked.setOptions({ breaks: true, gfm: true });
+const messagesDiv = document.getElementById('chat-messages');
+const typing = document.getElementById('typing-indicator');
+const emptyState = document.getElementById('empty-state');
+
+const initialMessages = {{ messages_json|safe }};
+
+function scrollBottom() {
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function renderMsg(role, content) {
+  const isUser = role === 'user';
+  const wrap = document.createElement('div');
+  wrap.className = 'd-flex ' + (isUser ? 'justify-content-end' : 'justify-content-start') + ' mb-2';
+  if (!isUser) {
+    const html = marked.parse(content);
+    wrap.innerHTML =
+      '<div class="me-2 mt-1" style="width:28px;height:28px;border-radius:50%;background:#e8f5e9;display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<i class="bi bi-robot text-success" style="font-size:.75rem"></i></div>' +
+      '<div class="chat-bubble-ai" style="max-width:80%"><div class="md-content">' + html + '</div></div>';
+  } else {
+    const safe = content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    wrap.innerHTML = '<div class="chat-bubble-user">' + safe + '</div>';
+  }
+  messagesDiv.insertBefore(wrap, typing);
+}
+
+if (initialMessages.length === 0) {
+  emptyState.style.display = 'block';
+  messagesDiv.insertBefore(emptyState, typing);
+} else {
+  initialMessages.forEach(function(m) { renderMsg(m.role, m.content); });
+}
+scrollBottom();
+
+document.getElementById('chat-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+  emptyState.style.display = 'none';
+  renderMsg('user', msg);
+  typing.classList.add('show');
+  scrollBottom();
+  try {
+    const res = await fetch('/api/chat/send/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await res.json();
+    typing.classList.remove('show');
+    renderMsg('assistant', data.content);
+  } catch(err) {
+    typing.classList.remove('show');
+    renderMsg('assistant', 'Xin loi, co loi xay ra. Vui long thu lai.');
+  }
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('chat-input').focus();
+  scrollBottom();
+});
+
+function quickSend(msg) {
+  document.getElementById('chat-input').value = msg;
+  document.getElementById('chat-form').dispatchEvent(new Event('submit'));
+}
+
+async function clearChat() {
+  if (!confirm('Xoa toan bo lich su tro chuyen?')) return;
+  await fetch('/api/chat/clear/', {method:'POST', headers:{'X-CSRFToken': getCsrf()}});
+  location.reload();
+}
+
+function getCsrf() {
+  return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
+</script>
+{% endblock %}
