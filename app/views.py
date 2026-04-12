@@ -15,7 +15,10 @@ try:
     base_url = os.environ.get("AI_INTEGRATIONS_GEMINI_BASE_URL")
     api_key = os.environ.get("AI_INTEGRATIONS_GEMINI_API_KEY", "dummy")
     if base_url:
-        ai_client = genai.Client(api_key=api_key, http_options={"base_url": base_url})
+        ai_client = genai.Client(
+            api_key=api_key,
+            http_options={"api_version": "", "base_url": base_url},
+        )
     else:
         ai_client = genai.Client(api_key=api_key)
     AI_AVAILABLE = True
@@ -106,7 +109,7 @@ def chat_send(request):
     ChatMessage.objects.create(role='user', content=user_text)
 
     if not AI_AVAILABLE or not ai_client:
-        msg = ChatMessage.objects.create(role='assistant', content='Xin loi, tinh nang AI chua duoc kich hoat. Vui long kiem tra cau hinh.')
+        msg = ChatMessage.objects.create(role='assistant', content='Xin lỗi, tính năng AI chưa được kích hoạt. Vui lòng kiểm tra cấu hình.')
         return JsonResponse({'role': msg.role, 'content': msg.content})
 
     profile = get_profile()
@@ -136,12 +139,12 @@ def chat_send(request):
             contents=contents,
             config=genai_types.GenerateContentConfig(
                 system_instruction=system_context,
-                max_output_tokens=2048,
+                max_output_tokens=8192,
             ),
         )
-        ai_text = response.text or 'Xin loi, toi khong co cau tra loi phu hop luc nay.'
+        ai_text = response.text or 'Xin lỗi, tôi không có câu trả lời phù hợp lúc này.'
     except Exception:
-        ai_text = 'Xin loi, toi gap su co khi ket noi AI. Vui long thu lai sau.'
+        ai_text = 'Xin lỗi, tôi gặp sự cố khi kết nối AI. Vui lòng thử lại sau.'
 
     msg = ChatMessage.objects.create(role='assistant', content=ai_text)
     return JsonResponse({'role': msg.role, 'content': msg.content})
