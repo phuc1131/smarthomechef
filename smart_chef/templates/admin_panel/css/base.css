@@ -1,0 +1,460 @@
+:root {
+  --primary: #0f4c5c;
+  --primary-light: #1f7a8c;
+  --primary-dark: #0b3440;
+  --accent: #2563eb;
+  --bg: #f5f7f5;
+}
+
+body {
+  background: var(--bg);
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: var(--primary-dark);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-brand {
+  padding: 1.5rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-brand h5 {
+  color: #fff;
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.sidebar-brand small {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.75rem;
+}
+
+.sidebar-nav {
+  padding: 0.75rem 0;
+  flex: 1;
+}
+
+.sidebar-nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1.25rem;
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-nav a:hover,
+.sidebar-nav a.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-left-color: var(--primary-light);
+}
+
+.sidebar-nav a i {
+  font-size: 1.1rem;
+  width: 20px;
+}
+
+.main-content {
+  margin-left: 240px;
+  padding: 1.75rem;
+  min-height: 100vh;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+}
+
+.page-header h2 {
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.page-header p {
+  color: #666;
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.card-custom {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e8f5e9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* ============================================
+   RESPONSIVE DESIGN - MOBILE, TABLET, DESKTOP
+   ============================================ */
+
+/* Hamburger Menu Button */
+.navbar-toggler {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 101;
+  display: none;
+  width: 48px;
+  height: 48px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+}
+
+.navbar-toggler:hover {
+  background: #1e5a9b;
+}
+
+.navbar-toggler-icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath stroke='white' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100%;
+}
+
+/* Sidebar Overlay */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  display: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.active {
+  display: block;
+  opacity: 1;
+}
+
+/* TABLET SCREENS (768px - 1024px) */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 200px;
+  }
+
+  .main-content {
+    margin-left: 200px;
+    padding: 1.5rem 1rem;
+  }
+
+  .sidebar-nav a {
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .sidebar-brand h5 {
+    font-size: 1rem;
+  }
+
+  .page-header h2 {
+    font-size: 1.5rem;
+  }
+}
+
+/* MOBILE SCREENS (max 767px) */
+@media (max-width: 767px) {
+  /* Show hamburger menu */
+  .navbar-toggler {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Sidebar repositioning for mobile */
+  .sidebar {
+    width: 280px;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: -280px;
+    z-index: 99;
+    transition: left 0.3s ease;
+  }
+
+  .sidebar.active {
+    left: 0;
+  }
+
+  /* Main content adjustment */
+  .main-content {
+    margin-left: 0;
+    padding: 5rem 1rem 1rem;
+    width: 100%;
+  }
+
+  /* Page header adjustments */
+  .page-header {
+    margin-bottom: 1.25rem;
+  }
+
+  .page-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .page-header p {
+    font-size: 0.85rem;
+  }
+
+  /* Sidebar brand adjustments */
+  .sidebar-brand {
+    padding: 1.25rem 1rem;
+  }
+
+  .sidebar-brand h5 {
+    font-size: 1rem;
+  }
+
+  .sidebar-brand small {
+    font-size: 0.7rem;
+  }
+
+  /* Navigation adjustments */
+  .sidebar-nav {
+    padding: 0.5rem 0;
+  }
+
+  .sidebar-nav a {
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .sidebar-nav a i {
+    font-size: 1rem;
+  }
+
+  /* Card adjustments */
+  .card-custom {
+    border-radius: 10px;
+  }
+
+  /* Form controls */
+  .form-control {
+    font-size: 16px;
+    padding: 0.75rem 0.75rem;
+  }
+
+  /* Buttons */
+  .btn {
+    font-size: 0.85rem;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .btn-lg {
+    font-size: 1rem;
+    padding: 0.75rem 1.25rem;
+  }
+
+  /* Tables - horizontal scroll on mobile */
+  .table-responsive {
+    border: none;
+  }
+
+  .table {
+    font-size: 0.85rem;
+  }
+
+  .table th, .table td {
+    padding: 0.6rem 0.5rem;
+  }
+
+  /* Grid adjustments */
+  .row {
+    margin-right: -0.5rem;
+    margin-left: -0.5rem;
+  }
+
+  .col, [class*="col-"] {
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+  }
+
+  /* Modal adjustments */
+  .modal-content {
+    border-radius: 12px;
+  }
+
+  .modal-header {
+    padding: 1rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  /* Hide text labels and show only icons in sidebar */
+  .sidebar-brand small {
+    display: none;
+  }
+
+  /* Better touch targets */
+  a, button {
+    min-height: 44px;
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* SMALL MOBILE SCREENS (max 480px) */
+@media (max-width: 480px) {
+  /* Sidebar narrower on very small devices */
+  .sidebar {
+    width: 240px;
+    left: -240px;
+  }
+
+  /* Hamburger button adjustments */
+  .navbar-toggler {
+    width: 44px;
+    height: 44px;
+    top: 0.75rem;
+    right: 0.75rem;
+  }
+
+  .navbar-toggler-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Main content padding */
+  .main-content {
+    padding: 4.5rem 0.75rem 1rem;
+  }
+
+  /* Page header */
+  .page-header {
+    margin-bottom: 1rem;
+  }
+
+  .page-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .page-header p {
+    font-size: 0.8rem;
+  }
+
+  /* Sidebar brand */
+  .sidebar-brand {
+    padding: 1rem 0.8rem;
+  }
+
+  .sidebar-brand h5 {
+    font-size: 0.95rem;
+  }
+
+  /* Navigation */
+  .sidebar-nav a {
+    padding: 0.55rem 0.8rem;
+    font-size: 0.8rem;
+    gap: 0.6rem;
+  }
+
+  .sidebar-nav a i {
+    width: 18px;
+  }
+
+  /* Card adjustments */
+  .card-custom {
+    border-radius: 8px;
+    margin: 0 -0.75rem;
+    border-left: none;
+    border-right: none;
+  }
+
+  /* Forms */
+  .form-control {
+    font-size: 16px;
+    border-radius: 8px;
+  }
+
+  /* Buttons */
+  .btn {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+  }
+
+  /* Sidebar footer */
+  .sidebar-footer {
+    padding: 0.75rem 0.8rem;
+  }
+}
+
+/* LANDSCAPE MODE - SMALL DEVICES */
+@media (max-height: 600px) {
+  .sidebar {
+    min-height: auto;
+  }
+
+  .main-content {
+    padding-top: 4.5rem;
+  }
+}
+
+/* TABLET LANDSCAPE (768px - 1024px) */
+@media (max-width: 1024px) and (orientation: landscape) {
+  .sidebar {
+    position: relative;
+    width: 180px;
+  }
+
+  .main-content {
+    margin-left: 180px;
+    padding: 1rem;
+  }
+
+  .sidebar-nav a {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .sidebar-brand h5 {
+    font-size: 0.95rem;
+  }
+
+  .page-header h2 {
+    font-size: 1.25rem;
+  }
+}
+
+/* Print styles */
+@media print {
+  .sidebar,
+  .navbar-toggler,
+  .sidebar-overlay {
+    display: none;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 0;
+  }
+}

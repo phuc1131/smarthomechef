@@ -1,0 +1,17 @@
+[MASTER]
+load-plugins=pylint_django
+django-settings-module=smart_chef.settings
+
+[DESIGN]
+max-attributes=7
+
+[MESSAGES CONTROL]
+disable=
+    missing-docstring,
+    too-few-public-methods,
+    too-many-arguments,
+    line-too-long,
+    unused-argument
+
+[FORMAT]
+max-line-length=120

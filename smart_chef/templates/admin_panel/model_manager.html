@@ -1,0 +1,232 @@
+{% extends "admin_panel/base.html" %}
+{% load static %}
+{% block title %}Quản lý {{ model_label }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'admin_panel/css/model_manager.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="manager-shell">
+  <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h2><i class="bi bi-table me-2" style="color:#0f4c5c"></i>Quản lý {{ model_label }}</h2>
+      <p>Quản lý dữ liệu frontend cho model {{ model_name }}: thêm, sửa, xóa, tìm kiếm và phân trang.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/admin-panel/data-manager/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Về dashboard dữ liệu</a>
+      <a href="{{ admin_model_url }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-shield-lock me-1"></i>Mở Django admin</a>
+      <form method="post" onsubmit="return confirm('Bot sẽ xóa các bản ghi trùng và giữ lại bản ghi đầu tiên. Tiếp tục?');" style="display:inline;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="dedupe_duplicates">
+        <input type="hidden" name="q" value="{{ query_text }}">
+        <input type="hidden" name="page" value="{{ page_obj.number }}">
+        <button type="submit" class="btn btn-warning btn-sm">
+          <i class="bi bi-robot me-1"></i>Bot loại bỏ trùng
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if messages %}
+  <div class="d-grid gap-2">
+    {% for message in messages %}
+    <div class="alert {% if message.tags == 'success' %}alert-success{% elif message.tags == 'error' %}alert-danger{% else %}alert-info{% endif %} py-2 mb-0">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="manager-card">
+    <div class="card-head">
+      <strong><i class="bi bi-filetype-csv me-1"></i>Import CSV + bot chuan hoa du lieu</strong>
+    </div>
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" class="row g-3 align-items-end">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="import_csv">
+        <input type="hidden" name="q" value="{{ query_text }}">
+        <input type="hidden" name="page" value="{{ page_obj.number }}">
+        <div class="col-12 col-lg-7">
+          <label class="form-label fw-semibold">File CSV</label>
+          <input class="form-control" type="file" name="csv_file" accept=".csv" required>
+          <div class="form-text">Header CSV nen trung ten cot trong model (vi du: id, name, created_at, ...).</div>
+        </div>
+        <div class="col-12 col-lg-3">
+          <div class="form-check mt-4">
+            <input class="form-check-input" type="checkbox" value="1" id="dry-run" name="dry_run">
+            <label class="form-check-label" for="dry-run">Dry run (chi loc/chuan hoa, khong ghi DB)</label>
+          </div>
+        </div>
+        <div class="col-12 col-lg-2 d-grid">
+          <button class="btn btn-success" type="submit"><i class="bi bi-upload me-1"></i>Import</button>
+        </div>
+      </form>
+
+      {% if import_report %}
+      <hr>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="stat-chip">Tong dong: {{ import_report.total_rows }}</span>
+        <span class="stat-chip">Hop le: {{ import_report.ok_rows }}</span>
+        <span class="stat-chip">Tao moi: {{ import_report.created_rows }}</span>
+        <span class="stat-chip">Cap nhat: {{ import_report.updated_rows }}</span>
+        <span class="stat-chip">Loi: {{ import_report.error_rows }}</span>
+        <span class="stat-chip">Canh bao: {{ import_report.warning_rows }}</span>
+        {% if import_report.dry_run %}<span class="stat-chip">Che do dry run</span>{% endif %}
+      </div>
+
+      {% if import_report.details %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Dong</th>
+              <th>Trang thai</th>
+              <th>Chi tiet bot loc du lieu</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in import_report.details %}
+            <tr>
+              <td>{{ item.row }}</td>
+              <td>
+                {% if item.status == 'error' %}
+                <span class="badge text-bg-danger">error</span>
+                {% elif item.status == 'warning' %}
+                <span class="badge text-bg-warning">warning</span>
+                {% else %}
+                <span class="badge text-bg-success">ok</span>
+                {% endif %}
+              </td>
+              <td>{{ item.message }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="manager-card">
+    <div class="card-head">
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <span class="stat-chip"><i class="bi bi-database"></i>{{ total_count }} ban ghi</span>
+        <span class="stat-chip"><i class="bi bi-card-list"></i>Trang {{ page_obj.number }}/{{ page_obj.paginator.num_pages|default:1 }}</span>
+      </div>
+      <form class="d-flex gap-2" method="get">
+        <input type="text" class="form-control form-control-sm" name="q" value="{{ query_text }}" placeholder="Tim theo noi dung...">
+        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-search me-1"></i>Tim</button>
+      </form>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>{{ pk_field_name }}</th>
+              {% for col in preview_fields %}
+              <th>{{ col }}</th>
+              {% endfor %}
+              <th style="width: 220px">Thao tac</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if rows %}
+              {% for row in rows %}
+              <tr>
+                <td>{{ row.pk }}</td>
+                {% for value in row.cells %}
+                <td title="{{ value }}">{{ value|truncatechars:64 }}</td>
+                {% endfor %}
+                <td>
+                  <div class="d-flex gap-1 flex-wrap">
+                    <a class="btn btn-outline-secondary btn-sm" href="?q={{ query_text|urlencode }}&page={{ page_obj.number }}&edit={{ row.pk }}"><i class="bi bi-pencil-square"></i></a>
+                    <a class="btn btn-outline-primary btn-sm" href="{{ row.admin_change_url }}"><i class="bi bi-box-arrow-up-right"></i></a>
+                    <form method="post" onsubmit="return confirm('Ban co chac chan xoa ban ghi nay?');" style="display:inline;">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="pk" value="{{ row.pk }}">
+                      <input type="hidden" name="q" value="{{ query_text }}">
+                      <input type="hidden" name="page" value="{{ page_obj.number }}">
+                      <button class="btn btn-outline-danger btn-sm" type="submit"><i class="bi bi-trash"></i></button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="{{ preview_fields|length|add:2 }}" class="text-muted">Khong co du lieu.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if page_obj.paginator.num_pages > 1 %}
+      <div class="d-flex justify-content-between align-items-center pt-3">
+        <div class="small text-muted">Hien thi {{ page_obj.start_index }}-{{ page_obj.end_index }} / {{ total_count }}</div>
+        <form class="d-flex align-items-center gap-2 flex-wrap" method="get">
+          <input type="hidden" name="q" value="{{ query_text }}">
+          {% if editing_pk %}<input type="hidden" name="edit" value="{{ editing_pk }}">{% endif %}
+          {% if page_obj.has_previous %}
+          <a class="btn btn-outline-secondary btn-sm" href="?q={{ query_text|urlencode }}&page={{ page_obj.previous_page_number }}{% if editing_pk %}&edit={{ editing_pk }}{% endif %}">Truoc</a>
+          {% endif %}
+          <label for="page-input" class="small text-muted mb-0">Trang</label>
+          <input
+            id="page-input"
+            name="page"
+            type="number"
+            class="form-control form-control-sm"
+            min="1"
+            max="{{ page_obj.paginator.num_pages }}"
+            value="{{ page_obj.number }}"
+            style="width: 92px"
+          >
+          <button class="btn btn-outline-primary btn-sm" type="submit">Di chuyen</button>
+          {% if page_obj.has_next %}
+          <a class="btn btn-outline-secondary btn-sm" href="?q={{ query_text|urlencode }}&page={{ page_obj.next_page_number }}{% if editing_pk %}&edit={{ editing_pk }}{% endif %}">Sau</a>
+          {% endif %}
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="manager-card">
+    <div class="card-head">
+      <strong>{% if is_editing %}Cap nhat ban ghi {{ editing_pk }}{% else %}Them moi ban ghi{% endif %}</strong>
+      {% if is_editing %}
+      <a href="?q={{ query_text|urlencode }}&page={{ page_obj.number }}" class="btn btn-outline-secondary btn-sm">Huy che do sua</a>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <form method="post" class="d-grid gap-3">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{% if is_editing %}update{% else %}create{% endif %}">
+        <input type="hidden" name="pk" value="{{ editing_pk }}">
+        <input type="hidden" name="q" value="{{ query_text }}">
+        <input type="hidden" name="page" value="{{ page_obj.number }}">
+
+        <div class="form-grid">
+          {% for field in form %}
+          <div class="field">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<small class="helptext">{{ field.help_text }}</small>{% endif %}
+            {{ field.errors }}
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary" type="submit">
+            {% if is_editing %}<i class="bi bi-check2-circle me-1"></i>Luu cap nhat{% else %}<i class="bi bi-plus-circle me-1"></i>Them moi{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

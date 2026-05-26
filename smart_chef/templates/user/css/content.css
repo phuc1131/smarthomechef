@@ -1,0 +1,530 @@
+/* ============================================
+   PROFILE PAGE STYLES
+   ============================================ */
+
+#save-status,
+.profile-save-status {
+  display: none;
+  font-size: 0.85rem;
+  color: var(--primary);
+}
+
+#delete-error,
+.profile-delete-error {
+  display: none;
+}
+
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #e8f5e9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  font-size: 2rem;
+}
+
+.profile-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 0.82rem;
+}
+
+.profile-info-row:last-child {
+  border-bottom: none;
+}
+
+.profile-info-label {
+  color: #999;
+}
+
+.profile-info-row strong {
+  font-weight: 600;
+}
+
+.profile-health-goal {
+  font-size: 0.85rem;
+  color: #999;
+}
+
+.profile-goal-alert {
+  font-size: 0.85rem;
+}
+
+.profile-empty-icon {
+  font-size: 2rem;
+  opacity: 0.3;
+}
+
+.profile-tips {
+  font-size: 0.83rem;
+  color: #555;
+}
+
+.form-label-small {
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+}
+
+/* ============================================
+   DASHBOARD PAGE STYLES
+   ============================================ */
+
+.dashboard-value-protein {
+  color: #1565c0;
+}
+
+.dashboard-value-carbs {
+  color: #e65100;
+}
+
+.dashboard-value-fat {
+  color: #6a1b9a;
+}
+
+.dashboard-icon-bg {
+  background: #f5f7f5;
+  color: var(--primary);
+}
+
+.dashboard-progress {
+  height: 10px;
+}
+
+.dashboard-metric-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.dashboard-stats-table {
+  font-size: 0.9rem;
+}
+
+.dashboard-empty-icon {
+  font-size: 1.5rem;
+  opacity: 0.35;
+}
+
+.dashboard-health-item-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.dashboard-health-item-text {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin-top: 0.5rem;
+}
+
+.dashboard-food-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.dashboard-food-category {
+  font-size: 0.78rem;
+}
+
+.dashboard-food-badge {
+  font-size: 0.7rem;
+}
+
+.dashboard-food-serving {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* ============================================
+   CHAT PAGE STYLES
+   ============================================ */
+
+.chat-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.chat-messages-area {
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+}
+
+.chat-empty-state {
+  color: #aaa;
+  display: none;
+}
+
+.chat-empty-icon {
+  font-size: 2.5rem;
+  color: #c8e6c9;
+}
+
+.chat-empty-message {
+  font-size: 0.9rem;
+}
+
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e8f5e9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-avatar-icon {
+  font-size: 0.75rem;
+}
+
+.chat-bubble-ai {
+  padding: 0.5rem 0.75rem;
+}
+
+/* ============================================
+   NUTRITION PAGE STYLES
+   ============================================ */
+
+.nutrition-date-input {
+  width: 160px;
+}
+
+.nutrition-icon-calorie {
+  background: #e8f5e9;
+  color: var(--primary);
+}
+
+.nutrition-icon-protein {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.nutrition-icon-carbs {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.nutrition-icon-fat {
+  background: #f3e5f5;
+  color: #6a1b9a;
+}
+
+.nutrition-value-protein {
+  color: #1565c0;
+}
+
+.nutrition-value-carbs {
+  color: #e65100;
+}
+
+.nutrition-value-fat {
+  color: #6a1b9a;
+}
+
+.nutrition-calorie-unit {
+  font-size: 0.72rem;
+}
+
+.nutrition-meals-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.nutrition-meal-row {
+  font-size: 0.82rem;
+}
+
+.nutrition-meal-footer {
+  font-size: 0.82rem;
+  background: #f9f9f9;
+}
+
+.nutrition-empty-state {
+  font-size: 0.85rem;
+}
+
+.nutrition-empty-icon {
+  font-size: 1.5rem;
+  opacity: 0.3;
+}
+
+.nutrition-cal-preview {
+  display: none;
+  font-size: 0.88rem;
+}
+
+/* ============================================
+   MEAL PLANS PAGE STYLES
+   ============================================ */
+
+.meal-plan-day-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #888;
+}
+
+.meal-plan-cell {
+  cursor: pointer;
+}
+
+/* ============================================
+   FOODS PAGE STYLES
+   ============================================ */
+
+.foods-featured-icon {
+  font-size: 1.3rem;
+}
+
+.foods-card {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.foods-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.foods-food-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.foods-food-category {
+  font-size: 0.65rem;
+  margin-top: 0.3rem;
+}
+
+.foods-calorie-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #198754;
+}
+
+.foods-calorie-unit {
+  font-size: 0.65rem;
+  color: #888;
+}
+
+.foods-nutrition-row {
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.foods-nutrition-cell {
+  border-radius: 4px;
+  padding: 0.2rem;
+}
+
+.foods-nutrition-protein {
+  background: #e3f2fd;
+}
+
+.foods-nutrition-protein-value {
+  font-weight: 600;
+  color: #1565c0;
+}
+
+.foods-nutrition-carbs {
+  background: #fff3e0;
+}
+
+.foods-nutrition-carbs-value {
+  font-weight: 600;
+  color: #e65100;
+}
+
+.foods-nutrition-fat {
+  background: #f3e5f5;
+}
+
+.foods-nutrition-fat-value {
+  font-weight: 600;
+  color: #6a1b9a;
+}
+
+.foods-nutrition-label {
+  color: #888;
+  font-size: 0.6rem;
+}
+
+.foods-serving-size {
+  font-size: 0.7rem;
+  color: #aaa;
+  margin-bottom: 0.5rem;
+}
+
+.foods-form-label {
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Search Results Section */
+.foods-filter-hint {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.foods-no-results-alert {
+  font-size: 0.85rem;
+}
+
+.foods-result-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.foods-result-category {
+  font-size: 0.7rem;
+}
+
+.foods-result-calorie-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #198754;
+}
+
+.foods-result-calorie-unit {
+  font-size: 0.7rem;
+  color: #888;
+}
+
+.foods-result-description {
+  font-size: 0.8rem;
+}
+
+.foods-result-nutrition-cell {
+  border-radius: 6px;
+  padding: 0.3rem 0.2rem;
+}
+
+.foods-result-nutrition-protein {
+  background: #e3f2fd;
+}
+
+.foods-result-nutrition-protein-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1565c0;
+}
+
+.foods-result-nutrition-carbs {
+  background: #fff3e0;
+}
+
+.foods-result-nutrition-carbs-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e65100;
+}
+
+.foods-result-nutrition-fat {
+  background: #f3e5f5;
+}
+
+.foods-result-nutrition-fat-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6a1b9a;
+}
+
+.foods-result-nutrition-label {
+  font-size: 0.65rem;
+  color: #888;
+}
+
+.foods-result-tags {
+  font-size: 0.65rem;
+}
+
+.foods-result-serving {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.foods-result-note {
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.foods-no-result-icon {
+  font-size: 2.5rem;
+  opacity: 0.3;
+}
+
+/* ============================================
+   RESPONSIVE DESIGN - CONTENT PAGES
+   ============================================ */
+
+@media (max-width: 768px) {
+  .profile-avatar {
+    width: 56px;
+    height: 56px;
+    font-size: 1.8rem;
+  }
+
+  .profile-info-row {
+    font-size: 0.8rem;
+  }
+
+  .profile-tips {
+    font-size: 0.8rem;
+  }
+
+  .dashboard-card-value {
+    font-size: 1.2rem;
+  }
+
+  .dashboard-stats-table {
+    font-size: 0.85rem;
+  }
+
+  .chat-empty-icon {
+    font-size: 2rem;
+  }
+
+  .chat-empty-message {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-avatar {
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+  }
+
+  .profile-info-row {
+    font-size: 0.75rem;
+    padding: 0.4rem 0;
+  }
+
+  .profile-tips {
+    font-size: 0.75rem;
+  }
+
+  .dashboard-card-value {
+    font-size: 1rem;
+  }
+
+  .dashboard-stats-table {
+    font-size: 0.8rem;
+  }
+
+  .chat-empty-icon {
+    font-size: 1.5rem;
+  }
+
+  .chat-empty-message {
+    font-size: 0.8rem;
+  }
+}

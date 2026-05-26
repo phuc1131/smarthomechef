@@ -26,3 +26,13 @@ Thumbs.db
 
 .cache/
 .local/
+
+# Root cleanup artifacts and one-off repair scripts
+/crawl_output.txt
+/crawl_full_output.txt
+/prepare_only_output.txt
+/PROJECT_STRUCTURE.md
+/add_*.py
+/check_*.py
+/fix_*.py
+/test_*.py

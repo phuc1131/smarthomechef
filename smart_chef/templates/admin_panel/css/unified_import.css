@@ -1,0 +1,93 @@
+:root {
+  --primary: #0f4c5c;
+  --primary-light: #1f7a8c;
+  --accent: #2563eb;
+}
+
+.card {
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+}
+
+.list-group-item {
+  border: 1px solid #e9ecef;
+}
+
+.list-group-item:hover {
+  background-color: #f8f9fa;
+}
+
+.badge {
+  padding: 6px 12px;
+}
+
+/* ============================================
+   RESPONSIVE DESIGN - UNIFIED IMPORT
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .badge {
+    padding: 5px 10px;
+    font-size: 0.85rem;
+  }
+
+  .list-group-item {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .card {
+    border-radius: 10px;
+    margin: 0 -1rem;
+    border-left: none;
+    border-right: none;
+  }
+
+  .badge {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+
+  .list-group-item {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  .card-body {
+    padding: 0.9rem;
+  }
+
+  .card-header {
+    padding: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .card {
+    border-radius: 8px;
+    margin: 0 -0.75rem;
+  }
+
+  .badge {
+    padding: 3px 6px;
+    font-size: 0.7rem;
+  }
+
+  .list-group-item {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .card-body {
+    padding: 0.75rem;
+  }
+
+  .card-header {
+    padding: 0.75rem;
+  }
+}

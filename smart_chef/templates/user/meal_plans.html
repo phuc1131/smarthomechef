@@ -1,0 +1,110 @@
+{% extends "user/base.html" %}
+{% load static %}
+{% block title %}Thực đơn — Nội Trợ AI{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h2><i class="bi bi-calendar3 me-2 text-primary"></i>Kế hoạch thực đơn</h2>
+    <p>Lập kế hoạch bữa ăn hàng ngày</p>
+  </div>
+  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addPlanModal">
+    <i class="bi bi-plus-lg me-1"></i> Thêm thực đơn
+  </button>
+</div>
+
+<!-- Calendar Nav -->
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <a href="?year={{ prev_year }}&month={{ prev_month }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="fw-600 fs-6">{{ month_name }} {{ year }}</span>
+    <a href="?year={{ next_year }}&month={{ next_month }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+  <div class="p-3">
+    <div class="row g-1 mb-1">
+      <div class="col text-center meal-plan-day-header">T2</div>
+      <div class="col text-center meal-plan-day-header">T3</div>
+      <div class="col text-center meal-plan-day-header">T4</div>
+      <div class="col text-center meal-plan-day-header">T5</div>
+      <div class="col text-center meal-plan-day-header">T6</div>
+      <div class="col text-center meal-plan-day-header">T7</div>
+      <div class="col text-center meal-plan-day-header">CN</div>
+    </div>
+    {% for week in calendar %}
+    <div class="row g-1 mb-1">
+      {% for d in week %}
+      <div class="col">
+        {% if d == 0 %}
+        <div class="calendar-day other-month"></div>
+        {% else %}
+        {% with date_key=year|stringformat:"04d" %}
+        <div class="calendar-day {% if d == today.day and month == today.month and year == today.year %}today{% endif %}"
+             onclick="openAddForDate('{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}')"
+             class="meal-plan-cell">
+          <div class="calendar-day-num">{{ d }}</div>
+          <div id="day-{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}"></div>
+        </div>
+        {% endwith %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Add Plan Modal -->
+<div class="modal fade" id="addPlanModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Thêm thực đơn</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Ngày</label>
+          <input type="date" class="form-control" id="plan-date" value="{{ today_str }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Bữa ăn</label>
+          <select class="form-select" id="plan-meal-type">
+            {% for v, l in meal_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tìm món ăn</label>
+          <input type="text" class="form-control mb-1" placeholder="Gõ để tìm..." id="plan-food-search" oninput="filterPlanFoods(this.value)">
+          <select class="form-select" id="plan-food" size="5">
+            {% for food in foods %}
+            <option value="{{ food.id }}">{{ food.name }} ({{ food.calories|floatformat:0 }} kcal)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Số khẩu phần</label>
+          <input type="number" class="form-control" id="plan-servings" value="1" min="0.5" step="0.5">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Ghi chú</label>
+          <input type="text" class="form-control" id="plan-notes" placeholder="Tuỳ chọn...">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+        <button class="btn btn-success" onclick="addPlan()">Thêm vào thực đơn</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{ plans_by_date_data|json_script:"plans-by-date-data" }}
+{{ meal_type_colors|json_script:"meal-type-colors-data" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'user/js/meal_plans.js' %}?v=20260510-1"></script>
+{% endblock %}

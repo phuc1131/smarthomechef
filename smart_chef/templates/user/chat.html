@@ -1,0 +1,50 @@
+{% extends "user/base.html" %}
+{% load static %}
+{% block title %}Trợ lý AI — Nội Trợ AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2><i class="bi bi-chat-dots me-2 text-primary"></i>Trợ lý AI</h2>
+  <p>Hỏi về dinh dưỡng, món ăn, thực đơn — tôi luôn sẵn sàng giúp!</p>
+</div>
+
+<div class="card-custom chat-container">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot me-2 text-success"></i>Nội Trợ AI</span>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearChat()">
+      <i class="bi bi-trash"></i> Xóa lịch sử
+    </button>
+  </div>
+
+  <div id="chat-messages" class="chat-messages-area">
+    <div id="empty-state" class="text-center py-4 chat-empty-state">
+      <i class="bi bi-chat-heart chat-empty-icon"></i>
+      <p class="mt-2 mb-0 chat-empty-message">Xin chào! Tôi là Nội Trợ AI.<br>Hãy hỏi tôi về món ăn, dinh dưỡng, hay thực đơn nhé!</p>
+    </div>
+    <div class="chat-typing d-flex align-items-center gap-2 mb-2" id="typing-indicator">
+      <div class="chat-avatar">
+        <i class="bi bi-robot text-success chat-avatar-icon"></i>
+      </div>
+      <div class="chat-bubble-ai d-flex align-items-center gap-1">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="p-3">
+    <form id="chat-form" class="d-flex gap-2">
+      {% csrf_token %}
+      <input type="text" id="chat-input" class="form-control" placeholder="Nhập câu hỏi về món ăn, dinh dưỡng..." autocomplete="off">
+      <button type="submit" class="btn btn-success px-3" id="send-btn">
+        <i class="bi bi-send"></i>
+      </button>
+    </form>
+  </div>
+</div>
+{{ messages_data|json_script:"initial-messages-data" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="{% static 'user/js/chat.js' %}?v=20260510-1"></script>
+{% endblock %}

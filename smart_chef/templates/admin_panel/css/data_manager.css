@@ -1,0 +1,477 @@
+.admin-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-hero {
+  background: linear-gradient(120deg, #0f4c5c 0%, #1f7a8c 60%, #2563eb 100%);
+  color: #fff;
+  border-radius: 18px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: 0 10px 28px rgba(15, 76, 92, 0.18);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.hero-subtitle {
+  margin: 0.25rem 0 0;
+  opacity: 0.92;
+  font-size: 0.92rem;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mini-stat {
+  background: #fff;
+  border: 1px solid #e7eef0;
+  border-radius: 14px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.mini-stat .label {
+  color: #667085;
+  font-size: 0.82rem;
+}
+
+.mini-stat .value {
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.chart-card,
+.model-card,
+.filter-card {
+  background: #fff;
+  border: 1px solid #e7eef0;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.chart-card {
+  padding: 0.95rem;
+}
+
+.chart-title {
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.filter-card {
+  padding: 1rem;
+}
+
+.crawl-control-card {
+  background: #f8fbff;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  padding: 0.95rem 1rem;
+}
+
+.crawl-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.crawl-status {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.crawl-status.running {
+  color: #166534;
+}
+
+.crawl-status.stopped {
+  color: #9f1239;
+}
+
+.group-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.group-tabs a {
+  text-decoration: none;
+  border: 1px solid #d7e3e7;
+  color: #334155;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: #fff;
+}
+
+.group-tabs a.active {
+  background: #0f4c5c;
+  color: #fff;
+  border-color: #0f4c5c;
+}
+
+.model-head {
+  border-bottom: 1px solid #edf2f3;
+  padding: 0.8rem 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.model-title {
+  font-weight: 800;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.model-meta {
+  color: #667085;
+  font-size: 0.82rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
+
+.meta-badge {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 0.18rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.table-sm td,
+.table-sm th {
+  font-size: 0.82rem;
+}
+
+.table td {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-label {
+  font-size: 0.8rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.stats-table td,
+.stats-table th {
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+/* ============================================
+   RESPONSIVE DESIGN - DATA MANAGER
+   ============================================ */
+
+/* TABLET SCREENS (768px - 1024px) */
+@media (max-width: 1024px) {
+  .admin-shell {
+    gap: 0.9rem;
+  }
+
+  .admin-hero {
+    padding: 1rem 1.1rem;
+  }
+
+  .hero-title {
+    font-size: 1.2rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.88rem;
+  }
+
+  .mini-stat {
+    padding: 0.9rem;
+  }
+
+  .mini-stat .value {
+    font-size: 1.4rem;
+  }
+
+  .chart-card {
+    padding: 0.85rem;
+  }
+
+  .chart-title {
+    font-size: 0.95rem;
+  }
+
+  .table-sm td,
+  .table-sm th {
+    font-size: 0.8rem;
+    padding: 0.5rem;
+  }
+
+  .table td {
+    max-width: 150px;
+  }
+}
+
+/* MOBILE SCREENS (max 767px) */
+@media (max-width: 767px) {
+  .admin-shell {
+    gap: 0.75rem;
+  }
+
+  .admin-hero {
+    padding: 0.95rem 1rem;
+    border-radius: 12px;
+  }
+
+  .hero-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .hero-subtitle {
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+  }
+
+  .pill {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.75rem;
+    gap: 0.3rem;
+  }
+
+  .mini-stat {
+    padding: 0.8rem;
+    margin-bottom: 0.75rem;
+    border-radius: 10px;
+  }
+
+  .mini-stat .label {
+    font-size: 0.75rem;
+  }
+
+  .mini-stat .value {
+    font-size: 1.3rem;
+  }
+
+  .chart-card,
+  .model-card,
+  .filter-card {
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  .chart-card {
+    padding: 0.8rem;
+  }
+
+  .chart-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .filter-card {
+    padding: 0.9rem;
+  }
+
+  .crawl-control-card {
+    padding: 0.9rem;
+  }
+
+  .crawl-title {
+    font-size: 0.95rem;
+  }
+
+  .crawl-status {
+    font-size: 0.8rem;
+  }
+
+  .group-tabs {
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .group-tabs a {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .model-head {
+    padding: 0.75rem 0.85rem;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .model-title {
+    font-size: 0.95rem;
+  }
+
+  .model-meta {
+    font-size: 0.75rem;
+  }
+
+  .meta-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.4rem;
+  }
+
+  .table,
+  .table-sm {
+    font-size: 0.8rem;
+  }
+
+  .table td,
+  .table th,
+  .table-sm td,
+  .table-sm th {
+    padding: 0.5rem 0.4rem;
+  }
+
+  .table td {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .section-label {
+    font-size: 0.75rem;
+    margin-bottom: 0.4rem;
+  }
+
+  /* Buttons in data manager */
+  .btn-sm {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.75rem;
+  }
+
+  .btn {
+    font-size: 0.85rem;
+  }
+}
+
+/* SMALL MOBILE SCREENS (max 480px) */
+@media (max-width: 480px) {
+  .admin-shell {
+    gap: 0.6rem;
+  }
+
+  .admin-hero {
+    padding: 0.85rem 0.9rem;
+    border-radius: 10px;
+  }
+
+  .hero-title {
+    font-size: 1rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.75rem;
+  }
+
+  .pill {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  .mini-stat {
+    padding: 0.7rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .mini-stat .label {
+    font-size: 0.7rem;
+  }
+
+  .mini-stat .value {
+    font-size: 1.2rem;
+  }
+
+  .chart-card,
+  .model-card,
+  .filter-card {
+    border-radius: 8px;
+    padding: 0.7rem;
+  }
+
+  .chart-title {
+    font-size: 0.85rem;
+  }
+
+  .filter-card {
+    padding: 0.8rem;
+  }
+
+  .crawl-control-card {
+    padding: 0.8rem;
+    border-radius: 8px;
+  }
+
+  .group-tabs {
+    gap: 0.3rem;
+  }
+
+  .group-tabs a {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .model-head {
+    padding: 0.7rem 0.8rem;
+  }
+
+  .model-title {
+    font-size: 0.9rem;
+  }
+
+  .table,
+  .table-sm {
+    font-size: 0.75rem;
+  }
+
+  .table td,
+  .table th,
+  .table-sm td,
+  .table-sm th {
+    padding: 0.4rem 0.3rem;
+  }
+
+  .table td {
+    max-width: 100px;
+  }
+
+  .section-label {
+    font-size: 0.7rem;
+  }
+
+  .btn-sm {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.7rem;
+  }
+}

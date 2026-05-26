@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  {% load static %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Noi Tro AI{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{% static 'user/css/base.css' %}">
+  <link rel="stylesheet" href="{% static 'user/css/content.css' %}">
+  <link rel="stylesheet" href="{% static 'user/css/recipe_rating.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <!-- Hamburger Menu Button (Mobile) -->
+  <button class="navbar-toggler" id="sidebar-toggle" type="button">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+
+  <!-- Sidebar Overlay (Mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <h5><i class="bi bi-stars me-2"></i>Nội Trợ AI</h5>
+      <small>Trợ lý gia đình thông minh</small>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">
+        <i class="bi bi-house-heart"></i> Tổng quan
+      </a>
+      <a href="/chat/" class="{% if active == 'chat' %}active{% endif %}">
+        <i class="bi bi-chat-dots"></i> Trợ lý AI
+      </a>
+      <a href="/thuc-don/" class="{% if active == 'meal_plans' %}active{% endif %}">
+        <i class="bi bi-calendar3"></i> Thực đơn
+      </a>
+      <a href="/theo-doi/" class="{% if active == 'nutrition' %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow"></i> Theo dõi
+      </a>
+      <a href="/mon-an/" class="{% if active == 'foods' %}active{% endif %}">
+        <i class="bi bi-egg-fried"></i> Món ăn
+      </a>
+      <a href="/ho-so/" class="{% if active == 'profile' %}active{% endif %}">
+        <i class="bi bi-person-circle"></i> Hồ sơ
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="dropdown account-dropdown">
+        <button
+          class="btn account-toggle dropdown-toggle"
+          type="button"
+          data-bs-toggle="dropdown"
+          aria-expanded="false"
+        >
+          <span class="account-avatar"><i class="bi bi-person-circle"></i></span>
+          <span class="account-meta">
+            {% if current_user.logged_in %}
+              <strong>{{ current_user.display_name|default:current_user.name|default:"Tài khoản" }}</strong>
+              <small>{{ current_user.email|default:"" }}</small>
+            {% else %}
+              <strong>Khách</strong>
+              <small>Đăng ký hoặc đăng nhập</small>
+            {% endif %}
+          </span>
+        </button>
+
+        <ul class="dropdown-menu dropdown-menu-dark account-menu">
+          {% if current_user.logged_in %}
+            <li><a class="dropdown-item" href="/ho-so/"><i class="bi bi-person me-2"></i>Hồ sơ</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button id="logout-btn" class="dropdown-item" type="button">
+                <i class="bi bi-box-arrow-right me-2"></i>Đăng xuất
+              </button>
+            </li>
+          {% else %}
+            <li><a class="dropdown-item" href="/dang-nhap/"><i class="bi bi-box-arrow-in-right me-2"></i>Đăng nhập</a></li>
+            <li><a class="dropdown-item" href="/dang-ky/"><i class="bi bi-person-plus me-2"></i>Đăng ký</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    {% block content %}{% endblock %}
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{% static 'user/js/responsive.js' %}"></script>
+  <script src="{% static 'user/js/base.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

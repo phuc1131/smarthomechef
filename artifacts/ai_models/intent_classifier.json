@@ -1,0 +1,1482 @@
+{
+  "model_name": "intent_classifier",
+  "version": "intent_classifier-20260520081609",
+  "trained_at": "2026-05-20T15:16:09.717826",
+  "document_count": 0,
+  "intent_count": 26,
+  "vocabulary_size": 163,
+  "profiles": {
+    "allergy_filter": {
+      "doc_count": 0,
+      "token_total": 8,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "allergy_filter": 1,
+        "allergy": 2,
+        "filter": 2,
+        "meals": 1,
+        "by": 1,
+        "constraints": 1
+      },
+      "top_tokens": [
+        [
+          "allergy",
+          2
+        ],
+        [
+          "filter",
+          2
+        ],
+        [
+          "allergy_filter",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "by",
+          1
+        ],
+        [
+          "constraints",
+          1
+        ]
+      ]
+    },
+    "budget_meals": {
+      "doc_count": 0,
+      "token_total": 12,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "budget_meals": 1,
+        "budget": 1,
+        "meals": 1,
+        "goi": 1,
+        "y": 1,
+        "bua": 1,
+        "an": 1,
+        "theo": 1,
+        "ngan": 1,
+        "sach": 1,
+        "ca": 1,
+        "nhan": 1
+      },
+      "top_tokens": [
+        [
+          "budget_meals",
+          1
+        ],
+        [
+          "budget",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "goi",
+          1
+        ],
+        [
+          "y",
+          1
+        ],
+        [
+          "bua",
+          1
+        ],
+        [
+          "an",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "ngan",
+          1
+        ],
+        [
+          "sach",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ]
+      ]
+    },
+    "budget_planning": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "budget_planning": 1,
+        "budget": 2,
+        "planning": 1,
+        "plan": 1,
+        "meals": 1,
+        "within": 1,
+        "a": 1,
+        "target": 1
+      },
+      "top_tokens": [
+        [
+          "budget",
+          2
+        ],
+        [
+          "budget_planning",
+          1
+        ],
+        [
+          "planning",
+          1
+        ],
+        [
+          "plan",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "within",
+          1
+        ],
+        [
+          "a",
+          1
+        ],
+        [
+          "target",
+          1
+        ]
+      ]
+    },
+    "calorie_tracking": {
+      "doc_count": 0,
+      "token_total": 11,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "calorie_tracking": 1,
+        "calorie": 1,
+        "tracking": 1,
+        "theo": 2,
+        "doi": 1,
+        "calo": 1,
+        "hang": 1,
+        "ngay": 1,
+        "muc": 1,
+        "tieu": 1
+      },
+      "top_tokens": [
+        [
+          "theo",
+          2
+        ],
+        [
+          "calorie_tracking",
+          1
+        ],
+        [
+          "calorie",
+          1
+        ],
+        [
+          "tracking",
+          1
+        ],
+        [
+          "doi",
+          1
+        ],
+        [
+          "calo",
+          1
+        ],
+        [
+          "hang",
+          1
+        ],
+        [
+          "ngay",
+          1
+        ],
+        [
+          "muc",
+          1
+        ],
+        [
+          "tieu",
+          1
+        ]
+      ]
+    },
+    "cooking_method": {
+      "doc_count": 0,
+      "token_total": 14,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "cooking_method": 1,
+        "cooking": 1,
+        "method": 1,
+        "tu": 1,
+        "van": 1,
+        "cach": 1,
+        "che": 1,
+        "bien": 1,
+        "phu": 1,
+        "hop": 1,
+        "muc": 1,
+        "tieu": 1,
+        "suc": 1,
+        "khoe": 1
+      },
+      "top_tokens": [
+        [
+          "cooking_method",
+          1
+        ],
+        [
+          "cooking",
+          1
+        ],
+        [
+          "method",
+          1
+        ],
+        [
+          "tu",
+          1
+        ],
+        [
+          "van",
+          1
+        ],
+        [
+          "cach",
+          1
+        ],
+        [
+          "che",
+          1
+        ],
+        [
+          "bien",
+          1
+        ],
+        [
+          "phu",
+          1
+        ],
+        [
+          "hop",
+          1
+        ],
+        [
+          "muc",
+          1
+        ],
+        [
+          "tieu",
+          1
+        ],
+        [
+          "suc",
+          1
+        ],
+        [
+          "khoe",
+          1
+        ]
+      ]
+    },
+    "cooking_steps": {
+      "doc_count": 0,
+      "token_total": 8,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "cooking_steps": 1,
+        "cooking": 2,
+        "steps": 1,
+        "ask": 1,
+        "for": 1,
+        "step-by-step": 1,
+        "guidance": 1
+      },
+      "top_tokens": [
+        [
+          "cooking",
+          2
+        ],
+        [
+          "cooking_steps",
+          1
+        ],
+        [
+          "steps",
+          1
+        ],
+        [
+          "ask",
+          1
+        ],
+        [
+          "for",
+          1
+        ],
+        [
+          "step-by-step",
+          1
+        ],
+        [
+          "guidance",
+          1
+        ]
+      ]
+    },
+    "diabetes_friendly": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "diabetes_friendly": 1,
+        "diabetes": 1,
+        "friendly": 1,
+        "lower": 1,
+        "sugar": 1,
+        "and": 1,
+        "carb-aware": 1,
+        "meal": 1,
+        "guidance": 1
+      },
+      "top_tokens": [
+        [
+          "diabetes_friendly",
+          1
+        ],
+        [
+          "diabetes",
+          1
+        ],
+        [
+          "friendly",
+          1
+        ],
+        [
+          "lower",
+          1
+        ],
+        [
+          "sugar",
+          1
+        ],
+        [
+          "and",
+          1
+        ],
+        [
+          "carb-aware",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "guidance",
+          1
+        ]
+      ]
+    },
+    "disease_friendly_diet": {
+      "doc_count": 0,
+      "token_total": 10,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "disease_friendly_diet": 1,
+        "medical": 1,
+        "diet": 1,
+        "tu": 1,
+        "van": 1,
+        "an": 1,
+        "uong": 1,
+        "theo": 1,
+        "benh": 1,
+        "nen": 1
+      },
+      "top_tokens": [
+        [
+          "disease_friendly_diet",
+          1
+        ],
+        [
+          "medical",
+          1
+        ],
+        [
+          "diet",
+          1
+        ],
+        [
+          "tu",
+          1
+        ],
+        [
+          "van",
+          1
+        ],
+        [
+          "an",
+          1
+        ],
+        [
+          "uong",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "benh",
+          1
+        ],
+        [
+          "nen",
+          1
+        ]
+      ]
+    },
+    "family_meal": {
+      "doc_count": 0,
+      "token_total": 7,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "family_meal": 1,
+        "family": 2,
+        "meal": 1,
+        "meals": 1,
+        "for": 1,
+        "preferences": 1
+      },
+      "top_tokens": [
+        [
+          "family",
+          2
+        ],
+        [
+          "family_meal",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "for",
+          1
+        ],
+        [
+          "preferences",
+          1
+        ]
+      ]
+    },
+    "healthy_snack": {
+      "doc_count": 0,
+      "token_total": 8,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "healthy_snack": 1,
+        "healthy": 2,
+        "snack": 2,
+        "ideas": 1,
+        "between": 1,
+        "meals": 1
+      },
+      "top_tokens": [
+        [
+          "healthy",
+          2
+        ],
+        [
+          "snack",
+          2
+        ],
+        [
+          "healthy_snack",
+          1
+        ],
+        [
+          "ideas",
+          1
+        ],
+        [
+          "between",
+          1
+        ],
+        [
+          "meals",
+          1
+        ]
+      ]
+    },
+    "hydration_habit": {
+      "doc_count": 0,
+      "token_total": 12,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "hydration_habit": 1,
+        "hydration": 1,
+        "guidance": 1,
+        "nhac": 1,
+        "nho": 1,
+        "va": 1,
+        "theo": 1,
+        "doi": 1,
+        "nuoc": 1,
+        "uong": 1,
+        "ca": 1,
+        "nhan": 1
+      },
+      "top_tokens": [
+        [
+          "hydration_habit",
+          1
+        ],
+        [
+          "hydration",
+          1
+        ],
+        [
+          "guidance",
+          1
+        ],
+        [
+          "nhac",
+          1
+        ],
+        [
+          "nho",
+          1
+        ],
+        [
+          "va",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "doi",
+          1
+        ],
+        [
+          "nuoc",
+          1
+        ],
+        [
+          "uong",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ]
+      ]
+    },
+    "ingredient_based_cooking": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "ingredient_based_cooking": 1,
+        "ingredient": 1,
+        "based": 1,
+        "cooking": 1,
+        "find": 1,
+        "meals": 1,
+        "from": 1,
+        "available": 1,
+        "ingredients": 1
+      },
+      "top_tokens": [
+        [
+          "ingredient_based_cooking",
+          1
+        ],
+        [
+          "ingredient",
+          1
+        ],
+        [
+          "based",
+          1
+        ],
+        [
+          "cooking",
+          1
+        ],
+        [
+          "find",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "from",
+          1
+        ],
+        [
+          "available",
+          1
+        ],
+        [
+          "ingredients",
+          1
+        ]
+      ]
+    },
+    "ingredient_substitution": {
+      "doc_count": 0,
+      "token_total": 13,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "ingredient_substitution": 1,
+        "ingredient": 1,
+        "substitution": 1,
+        "thay": 1,
+        "the": 1,
+        "nguyen": 1,
+        "lieu": 1,
+        "phu": 1,
+        "hop": 1,
+        "tinh": 1,
+        "trang": 1,
+        "nguoi": 1,
+        "dung": 1
+      },
+      "top_tokens": [
+        [
+          "ingredient_substitution",
+          1
+        ],
+        [
+          "ingredient",
+          1
+        ],
+        [
+          "substitution",
+          1
+        ],
+        [
+          "thay",
+          1
+        ],
+        [
+          "the",
+          1
+        ],
+        [
+          "nguyen",
+          1
+        ],
+        [
+          "lieu",
+          1
+        ],
+        [
+          "phu",
+          1
+        ],
+        [
+          "hop",
+          1
+        ],
+        [
+          "tinh",
+          1
+        ],
+        [
+          "trang",
+          1
+        ],
+        [
+          "nguoi",
+          1
+        ],
+        [
+          "dung",
+          1
+        ]
+      ]
+    },
+    "leftovers_reuse": {
+      "doc_count": 0,
+      "token_total": 8,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "leftovers_reuse": 1,
+        "leftovers": 2,
+        "reuse": 2,
+        "into": 1,
+        "new": 1,
+        "meals": 1
+      },
+      "top_tokens": [
+        [
+          "leftovers",
+          2
+        ],
+        [
+          "reuse",
+          2
+        ],
+        [
+          "leftovers_reuse",
+          1
+        ],
+        [
+          "into",
+          1
+        ],
+        [
+          "new",
+          1
+        ],
+        [
+          "meals",
+          1
+        ]
+      ]
+    },
+    "macro_balance": {
+      "doc_count": 0,
+      "token_total": 10,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "macro_balance": 1,
+        "macro": 1,
+        "balance": 1,
+        "can": 1,
+        "bang": 1,
+        "protein": 1,
+        "carbs": 1,
+        "fat": 1,
+        "theo": 1,
+        "profile": 1
+      },
+      "top_tokens": [
+        [
+          "macro_balance",
+          1
+        ],
+        [
+          "macro",
+          1
+        ],
+        [
+          "balance",
+          1
+        ],
+        [
+          "can",
+          1
+        ],
+        [
+          "bang",
+          1
+        ],
+        [
+          "protein",
+          1
+        ],
+        [
+          "carbs",
+          1
+        ],
+        [
+          "fat",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "profile",
+          1
+        ]
+      ]
+    },
+    "meal_plan_daily": {
+      "doc_count": 0,
+      "token_total": 13,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "meal_plan_daily": 1,
+        "daily": 1,
+        "meal": 1,
+        "plan": 1,
+        "lap": 1,
+        "thuc": 1,
+        "don": 1,
+        "1": 1,
+        "ngay": 1,
+        "theo": 1,
+        "ca": 1,
+        "nhan": 1,
+        "hoa": 1
+      },
+      "top_tokens": [
+        [
+          "meal_plan_daily",
+          1
+        ],
+        [
+          "daily",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "plan",
+          1
+        ],
+        [
+          "lap",
+          1
+        ],
+        [
+          "thuc",
+          1
+        ],
+        [
+          "don",
+          1
+        ],
+        [
+          "1",
+          1
+        ],
+        [
+          "ngay",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ],
+        [
+          "hoa",
+          1
+        ]
+      ]
+    },
+    "meal_plan_weekly": {
+      "doc_count": 0,
+      "token_total": 14,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "meal_plan_weekly": 1,
+        "weekly": 1,
+        "meal": 1,
+        "plan": 1,
+        "lap": 1,
+        "thuc": 1,
+        "don": 1,
+        "7": 1,
+        "ngay": 1,
+        "theo": 1,
+        "dieu": 1,
+        "kien": 1,
+        "ca": 1,
+        "nhan": 1
+      },
+      "top_tokens": [
+        [
+          "meal_plan_weekly",
+          1
+        ],
+        [
+          "weekly",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "plan",
+          1
+        ],
+        [
+          "lap",
+          1
+        ],
+        [
+          "thuc",
+          1
+        ],
+        [
+          "don",
+          1
+        ],
+        [
+          "7",
+          1
+        ],
+        [
+          "ngay",
+          1
+        ],
+        [
+          "theo",
+          1
+        ],
+        [
+          "dieu",
+          1
+        ],
+        [
+          "kien",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ]
+      ]
+    },
+    "meal_recommendation": {
+      "doc_count": 0,
+      "token_total": 11,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "meal_recommendation": 1,
+        "meal": 1,
+        "recommendation": 1,
+        "suggest": 1,
+        "meals": 1,
+        "based": 1,
+        "on": 1,
+        "time": 1,
+        "taste": 1,
+        "and": 1,
+        "context": 1
+      },
+      "top_tokens": [
+        [
+          "meal_recommendation",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "recommendation",
+          1
+        ],
+        [
+          "suggest",
+          1
+        ],
+        [
+          "meals",
+          1
+        ],
+        [
+          "based",
+          1
+        ],
+        [
+          "on",
+          1
+        ],
+        [
+          "time",
+          1
+        ],
+        [
+          "taste",
+          1
+        ],
+        [
+          "and",
+          1
+        ],
+        [
+          "context",
+          1
+        ]
+      ]
+    },
+    "muscle_gain_goal": {
+      "doc_count": 0,
+      "token_total": 12,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "muscle_gain_goal": 1,
+        "muscle": 1,
+        "gain": 1,
+        "ke": 1,
+        "hoach": 1,
+        "an": 1,
+        "uong": 1,
+        "tang": 1,
+        "co": 1,
+        "ca": 1,
+        "nhan": 1,
+        "hoa": 1
+      },
+      "top_tokens": [
+        [
+          "muscle_gain_goal",
+          1
+        ],
+        [
+          "muscle",
+          1
+        ],
+        [
+          "gain",
+          1
+        ],
+        [
+          "ke",
+          1
+        ],
+        [
+          "hoach",
+          1
+        ],
+        [
+          "an",
+          1
+        ],
+        [
+          "uong",
+          1
+        ],
+        [
+          "tang",
+          1
+        ],
+        [
+          "co",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ],
+        [
+          "hoa",
+          1
+        ]
+      ]
+    },
+    "muscle_gain_support": {
+      "doc_count": 0,
+      "token_total": 7,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "muscle_gain_support": 1,
+        "muscle": 1,
+        "gain": 1,
+        "support": 2,
+        "higher-protein": 1,
+        "choices": 1
+      },
+      "top_tokens": [
+        [
+          "support",
+          2
+        ],
+        [
+          "muscle_gain_support",
+          1
+        ],
+        [
+          "muscle",
+          1
+        ],
+        [
+          "gain",
+          1
+        ],
+        [
+          "higher-protein",
+          1
+        ],
+        [
+          "choices",
+          1
+        ]
+      ]
+    },
+    "nutrition_query": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "nutrition_query": 1,
+        "nutrition": 1,
+        "query": 1,
+        "ask": 1,
+        "for": 1,
+        "calories": 1,
+        "and": 1,
+        "macro": 1,
+        "information": 1
+      },
+      "top_tokens": [
+        [
+          "nutrition_query",
+          1
+        ],
+        [
+          "nutrition",
+          1
+        ],
+        [
+          "query",
+          1
+        ],
+        [
+          "ask",
+          1
+        ],
+        [
+          "for",
+          1
+        ],
+        [
+          "calories",
+          1
+        ],
+        [
+          "and",
+          1
+        ],
+        [
+          "macro",
+          1
+        ],
+        [
+          "information",
+          1
+        ]
+      ]
+    },
+    "quick_meal": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "quick_meal": 1,
+        "quick": 1,
+        "meal": 2,
+        "fast": 1,
+        "suggestions": 1,
+        "for": 1,
+        "busy": 1,
+        "schedules": 1
+      },
+      "top_tokens": [
+        [
+          "meal",
+          2
+        ],
+        [
+          "quick_meal",
+          1
+        ],
+        [
+          "quick",
+          1
+        ],
+        [
+          "fast",
+          1
+        ],
+        [
+          "suggestions",
+          1
+        ],
+        [
+          "for",
+          1
+        ],
+        [
+          "busy",
+          1
+        ],
+        [
+          "schedules",
+          1
+        ]
+      ]
+    },
+    "shopping_list": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "shopping_list": 1,
+        "shopping": 2,
+        "list": 2,
+        "generate": 1,
+        "from": 1,
+        "meal": 1,
+        "intent": 1
+      },
+      "top_tokens": [
+        [
+          "shopping",
+          2
+        ],
+        [
+          "list",
+          2
+        ],
+        [
+          "shopping_list",
+          1
+        ],
+        [
+          "generate",
+          1
+        ],
+        [
+          "from",
+          1
+        ],
+        [
+          "meal",
+          1
+        ],
+        [
+          "intent",
+          1
+        ]
+      ]
+    },
+    "weekly_meal_plan": {
+      "doc_count": 0,
+      "token_total": 9,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "weekly_meal_plan": 1,
+        "weekly": 2,
+        "meal": 2,
+        "plan": 2,
+        "build": 1,
+        "a": 1
+      },
+      "top_tokens": [
+        [
+          "weekly",
+          2
+        ],
+        [
+          "meal",
+          2
+        ],
+        [
+          "plan",
+          2
+        ],
+        [
+          "weekly_meal_plan",
+          1
+        ],
+        [
+          "build",
+          1
+        ],
+        [
+          "a",
+          1
+        ]
+      ]
+    },
+    "weight_loss_goal": {
+      "doc_count": 0,
+      "token_total": 12,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "weight_loss_goal": 1,
+        "weight": 1,
+        "loss": 1,
+        "ke": 1,
+        "hoach": 1,
+        "an": 1,
+        "uong": 1,
+        "giam": 1,
+        "can": 1,
+        "ca": 1,
+        "nhan": 1,
+        "hoa": 1
+      },
+      "top_tokens": [
+        [
+          "weight_loss_goal",
+          1
+        ],
+        [
+          "weight",
+          1
+        ],
+        [
+          "loss",
+          1
+        ],
+        [
+          "ke",
+          1
+        ],
+        [
+          "hoach",
+          1
+        ],
+        [
+          "an",
+          1
+        ],
+        [
+          "uong",
+          1
+        ],
+        [
+          "giam",
+          1
+        ],
+        [
+          "can",
+          1
+        ],
+        [
+          "ca",
+          1
+        ],
+        [
+          "nhan",
+          1
+        ],
+        [
+          "hoa",
+          1
+        ]
+      ]
+    },
+    "weight_loss_support": {
+      "doc_count": 0,
+      "token_total": 7,
+      "prior_log_prob": -3.258096538021482,
+      "token_counts": {
+        "weight_loss_support": 1,
+        "weight": 1,
+        "loss": 1,
+        "support": 2,
+        "reduced-calorie": 1,
+        "choices": 1
+      },
+      "top_tokens": [
+        [
+          "support",
+          2
+        ],
+        [
+          "weight_loss_support",
+          1
+        ],
+        [
+          "weight",
+          1
+        ],
+        [
+          "loss",
+          1
+        ],
+        [
+          "reduced-calorie",
+          1
+        ],
+        [
+          "choices",
+          1
+        ]
+      ]
+    }
+  },
+  "intent_names": [
+    "allergy_filter",
+    "budget_meals",
+    "budget_planning",
+    "calorie_tracking",
+    "cooking_method",
+    "cooking_steps",
+    "diabetes_friendly",
+    "disease_friendly_diet",
+    "family_meal",
+    "healthy_snack",
+    "hydration_habit",
+    "ingredient_based_cooking",
+    "ingredient_substitution",
+    "leftovers_reuse",
+    "macro_balance",
+    "meal_plan_daily",
+    "meal_plan_weekly",
+    "meal_recommendation",
+    "muscle_gain_goal",
+    "muscle_gain_support",
+    "nutrition_query",
+    "quick_meal",
+    "shopping_list",
+    "weekly_meal_plan",
+    "weight_loss_goal",
+    "weight_loss_support"
+  ]
+}

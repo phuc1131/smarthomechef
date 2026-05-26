@@ -1,0 +1,237 @@
+<!-- Recipe Rating Component - Simplified UI -->
+<div class="recipe-rating-section">
+    <div class="rating-container">
+        <!-- Title -->
+        <h3 class="rating-title">Đánh giá trải nghiệm của bạn</h3>
+        
+        <!-- Rating Form -->
+        <form id="ratingForm" class="rating-form">
+            {% csrf_token %}
+            
+            <!-- Star Rating -->
+            <div class="star-rating-wrapper">
+                <div class="star-rating" id="starRating">
+                    <span class="star" data-value="1">
+                        <i class="far fa-star"></i>
+                    </span>
+                    <span class="star" data-value="2">
+                        <i class="far fa-star"></i>
+                    </span>
+                    <span class="star" data-value="3">
+                        <i class="far fa-star"></i>
+                    </span>
+                    <span class="star" data-value="4">
+                        <i class="far fa-star"></i>
+                    </span>
+                    <span class="star" data-value="5">
+                        <i class="far fa-star"></i>
+                    </span>
+                </div>
+                <input type="hidden" id="ratingInput" name="rating" value="0">
+            </div>
+            
+            <!-- Feedback Textarea -->
+            <textarea 
+                id="commentInput" 
+                name="comment" 
+                class="feedback-textarea"
+                placeholder="Nhập nhận xét của bạn"
+                rows="4"
+                maxlength="500"
+            ></textarea>
+            
+            <!-- Submit Button -->
+            <div class="rating-actions">
+                <button type="submit" class="btn-submit" id="submitBtn">Gửi</button>
+            </div>
+            
+            <!-- Message -->
+            <div id="formMessage" class="form-message form-message-hidden"></div>
+        </form>
+
+        <!-- Success Message -->
+        <div id="successMessage" class="success-message success-message-hidden">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>Cảm ơn bạn đã đánh giá!</span>
+        </div>
+    </div>
+</div>
+
+<!-- Styles moved to /user/css/recipe_rating.css -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const starRating = document.getElementById('starRating');
+    const ratingInput = document.getElementById('ratingInput');
+    const stars = document.querySelectorAll('.star');
+    const ratingForm = document.getElementById('ratingForm');
+    const formMessage = document.getElementById('formMessage');
+    const successMessage = document.getElementById('successMessage');
+    let selectedRating = 0;
+
+    // Get account ID from window or template context
+    const accountId = window.currentAccountId || parseInt(document.querySelector('[data-account-id]')?.getAttribute('data-account-id') || '0');
+
+    // Star click handler
+    stars.forEach(star => {
+        star.addEventListener('click', function() {
+            selectedRating = parseInt(this.getAttribute('data-value'));
+            ratingInput.value = selectedRating;
+            
+            // Update active stars
+            stars.forEach(s => {
+                const value = parseInt(s.getAttribute('data-value'));
+                if (value <= selectedRating) {
+                    s.classList.add('active');
+                    s.querySelector('i').classList.remove('far');
+                    s.querySelector('i').classList.add('fas');
+                } else {
+                    s.classList.remove('active');
+                    s.querySelector('i').classList.add('far');
+                    s.querySelector('i').classList.remove('fas');
+                }
+            });
+        });
+
+        // Hover effect
+        star.addEventListener('mouseenter', function() {
+            const hoverValue = parseInt(this.getAttribute('data-value'));
+            stars.forEach(s => {
+                const value = parseInt(s.getAttribute('data-value'));
+                if (value <= hoverValue) {
+                    s.style.transform = 'scale(1.15)';
+                } else {
+                    s.style.transform = 'scale(1)';
+                }
+            });
+        });
+    });
+
+    // Reset hover on mouse leave
+    starRating.addEventListener('mouseleave', function() {
+        stars.forEach(s => {
+            s.style.transform = 'scale(1)';
+        });
+    });
+
+    // Form submit
+    ratingForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        if (selectedRating === 0) {
+            showMessage('Vui lòng chọn mức đánh giá', 'error');
+            return;
+        }
+
+        const comment = document.getElementById('commentInput').value;
+        const recipeId = window.currentRecipeId || null;
+        
+        if (!recipeId) {
+            showMessage('Không tìm thấy công thức', 'error');
+            return;
+        }
+
+        if (!accountId || accountId === 0) {
+            showMessage('Không tìm thấy thông tin tài khoản', 'error');
+            return;
+        }
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Đang gửi...';
+
+        // Send rating to server
+        fetch('/api/recipe/rate/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrf()
+            },
+            body: JSON.stringify({
+                recipe_id: recipeId,
+                account_id: accountId,
+                rating: selectedRating,
+                comment: comment
+            })
+        })
+        .then(async (response) => {
+            const contentType = response.headers.get('content-type') || '';
+            const raw = await response.text();
+            let data = null;
+            if (contentType.includes('application/json')) {
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch {
+                    data = null;
+                }
+            }
+            if (!data) {
+                const preview = (raw || '').trim().slice(0, 120).replace(/\s+/g, ' ');
+                throw new Error(`/api/recipe/rate/ returned ${response.status} ${response.statusText} and HTML/invalid JSON: ${preview || '(empty response)'}`);
+            }
+            return { response, data };
+        })
+        .then(({ response, data }) => {
+            if (data.success) {
+                // Show success
+                ratingForm.style.display = 'none';
+                successMessage.style.display = 'flex';
+                
+                // Reset form after 2 seconds
+                setTimeout(() => {
+                    ratingForm.reset();
+                    ratingForm.style.display = 'block';
+                    successMessage.style.display = 'none';
+                    selectedRating = 0;
+                    ratingInput.value = 0;
+                    stars.forEach(s => {
+                        s.classList.remove('active');
+                        s.querySelector('i').classList.add('far');
+                        s.querySelector('i').classList.remove('fas');
+                    });
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Gửi';
+                }, 2000);
+            } else {
+                showMessage(data.message || `Lỗi gửi đánh giá (HTTP ${response.status})`, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Gửi';
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showMessage(error.message || 'Có lỗi xảy ra. Vui lòng thử lại.', 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Gửi';
+        });
+    });
+
+    function showMessage(text, type) {
+        formMessage.className = `form-message ${type}`;
+        formMessage.textContent = text;
+        formMessage.style.display = 'block';
+        
+        if (type === 'success') {
+            setTimeout(() => {
+                formMessage.style.display = 'none';
+            }, 3000);
+        }
+    }
+
+    function getCsrf() {
+        const name = 'csrftoken';
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>

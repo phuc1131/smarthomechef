@@ -1,0 +1,220 @@
+{% extends "user/base.html" %}
+{% load static %}
+{% block title %}Hồ sơ — Nội Trợ AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2><i class="bi bi-person-circle me-2 text-primary"></i>Hồ sơ sức khoẻ</h2>
+  <p>Cập nhật thông tin để nhận gợi ý dinh dưỡng cá nhân hoá</p>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card-custom">
+      <div class="card-header"><i class="bi bi-person me-2"></i>Thông tin cá nhân</div>
+      <div class="p-4">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Họ và tên</label>
+            <input type="text" class="form-control" id="p-name" value="{{ profile.name|default:'' }}" placeholder="Nguyễn Văn A">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Giới tính</label>
+            <select class="form-select" id="p-gender">
+              <option value="">Chọn...</option>
+              <option value="Nam" {% if profile.gender == 'Nam' %}selected{% endif %}>Nam</option>
+              <option value="Nữ" {% if profile.gender == 'Nữ' %}selected{% endif %}>Nữ</option>
+              <option value="Khác" {% if profile.gender == 'Khác' %}selected{% endif %}>Khác</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Tuổi</label>
+            <input type="number" class="form-control" id="p-age" value="{{ profile.age|default:'' }}" placeholder="30" min="1" max="120">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Cân nặng (kg)</label>
+            <input type="number" class="form-control" id="p-weight" value="{{ profile.weight|default:'' }}" placeholder="60" step="0.1">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Chiều cao (cm)</label>
+            <input type="number" class="form-control" id="p-height" value="{{ profile.height|default:'' }}" placeholder="165" step="0.1">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Mục tiêu calo/ngày</label>
+            <input type="number" class="form-control" id="p-calorie" value="{{ profile.daily_calorie_target|default:'' }}" placeholder="2000">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-custom mt-3">
+      <div class="card-header"><i class="bi bi-heart-pulse me-2"></i>Sức khoẻ & Mục tiêu</div>
+      <div class="p-4">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Mục tiêu sức khoẻ</label>
+            <select class="form-select" id="p-goal">
+              <option value="">Chọn mục tiêu...</option>
+              <option value="Giảm cân" {% if profile.health_goal == 'Giảm cân' %}selected{% endif %}>Giảm cân</option>
+              <option value="Tăng cân" {% if profile.health_goal == 'Tăng cân' %}selected{% endif %}>Tăng cân</option>
+              <option value="Duy trì cân nặng" {% if profile.health_goal == 'Duy trì cân nặng' %}selected{% endif %}>Duy trì cân nặng</option>
+              <option value="Tăng cơ" {% if profile.health_goal == 'Tăng cơ' %}selected{% endif %}>Tăng cơ</option>
+              <option value="Ăn uống lành mạnh" {% if profile.health_goal == 'Ăn uống lành mạnh' %}selected{% endif %}>Ăn uống lành mạnh</option>
+              <option value="Kiểm soát tiểu đường" {% if profile.health_goal == 'Kiểm soát tiểu đường' %}selected{% endif %}>Kiểm soát tiểu đường</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Mức độ hoạt động</label>
+            <select class="form-select" id="p-activity">
+              <option value="">Chọn...</option>
+              <option value="Ít vận động" {% if profile.activity_level == 'Ít vận động' %}selected{% endif %}>Ít vận động</option>
+              <option value="Vận động nhẹ" {% if profile.activity_level == 'Vận động nhẹ' %}selected{% endif %}>Vận động nhẹ</option>
+              <option value="Vận động vừa" {% if profile.activity_level == 'Vận động vừa' %}selected{% endif %}>Vận động vừa</option>
+              <option value="Vận động nhiều" {% if profile.activity_level == 'Vận động nhiều' %}selected{% endif %}>Vận động nhiều</option>
+              <option value="Vận động cường độ cao" {% if profile.activity_level == 'Vận động cường độ cao' %}selected{% endif %}>Vận động cường độ cao</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Bệnh lý / Dị ứng</label>
+            <textarea class="form-control" id="p-conditions" rows="2" placeholder="Ví dụ: Tiểu đường type 2, cao huyết áp...">{{ profile.medical_conditions|default:'' }}</textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Sở thích / Hạn chế ăn uống</label>
+            <textarea class="form-control" id="p-diet" rows="2" placeholder="Ví dụ: Không ăn thịt đỏ, ưa đồ ít dầu mỡ...">{{ profile.dietary_preferences|default:'' }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-3 d-flex align-items-center gap-3">
+      <button class="btn btn-success px-4" onclick="saveProfile()">
+        <i class="bi bi-check-lg me-1"></i> Lưu thông tin
+      </button>
+      {% if current_user.logged_in %}
+      <!-- Show delete button to any logged-in user; server will enforce confirmation rules. -->
+      <button class="btn btn-outline-danger px-3" id="delete-account-btn" type="button" data-bs-toggle="modal" data-bs-target="#deleteAccountModal">
+        <i class="bi bi-trash me-1"></i> Xóa tài khoản
+      </button>
+      {% else %}
+      <a class="btn btn-outline-danger px-3" href="/dang-nhap/">
+        <i class="bi bi-trash me-1"></i> Đăng nhập để xóa tài khoản
+      </a>
+      {% endif %}
+      <div id="save-status" class="profile-save-status">
+        <i class="bi bi-check-circle"></i> Đã lưu thành công!
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    {% if profile %}
+    <div class="card-custom">
+      <div class="card-header"><i class="bi bi-person-badge me-2"></i>Tóm tắt hồ sơ</div>
+      <div class="p-3">
+        <div class="text-center mb-3">
+          <div class="profile-avatar">
+            👤
+          </div>
+          <div class="fw-bold mt-2">{{ profile.name|default:"Chưa đặt tên" }}</div>
+          <div class="text-muted profile-health-goal">{{ profile.health_goal|default:"Chưa đặt mục tiêu" }}</div>
+        </div>
+        <div class="alert alert-success py-2 text-center mb-2 profile-goal-alert">
+          {% if profile_bmi_display %}
+          <strong>BMI ≈ {{ profile_bmi_display }}</strong><br>
+          {% else %}
+          <strong>BMI chưa có dữ liệu</strong><br>
+          {% endif %}
+          <span class="text-muted">
+            {% if profile.weight %}{{ profile.weight|floatformat:1 }} kg{% else %}—{% endif %}
+            ·
+            {% if profile.height %}{{ profile.height|floatformat:0 }} cm{% else %}—{% endif %}
+          </span>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Cân nặng</span><strong>{% if profile.weight %}{{ profile.weight|floatformat:1 }} kg{% else %}—{% endif %}</strong>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Tình trạng cân nặng</span><strong>{{ profile_weight_status|default:"Chưa xác định" }}</strong>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Chiều cao</span><strong>{% if profile.height %}{{ profile.height|floatformat:0 }} cm{% else %}—{% endif %}</strong>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Tuổi</span><strong>{{ profile.age|default:"—" }}</strong>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Hoạt động</span><strong>{{ profile.activity_level|default:"—" }}</strong>
+        </div>
+        <div class="profile-info-row">
+          <span class="profile-info-label">Calo mục tiêu</span>
+          <strong>{% if profile.daily_calorie_target %}{{ profile.daily_calorie_target }} kcal{% else %}—{% endif %}</strong>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card-custom">
+      <div class="p-4 text-center text-muted">
+        <i class="bi bi-person-plus profile-empty-icon"></i>
+        <p class="mt-2">Điền thông tin để nhận gợi ý dinh dưỡng cá nhân hoá từ AI</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card-custom mt-3">
+      <div class="card-header"><i class="bi bi-key me-2"></i>Bảo mật</div>
+      <div class="p-3">
+        <!-- Always show the password action so OAuth users can set an initial password -->
+        <a href="{% url 'change_password' %}" class="btn btn-outline-primary btn-sm w-100 mb-2">
+          <i class="bi bi-pencil-square me-1"></i>{% if account.password_hash %}Thay đổi mật khẩu{% else %}Đặt mật khẩu{% endif %}
+        </a>
+        {% if not account.password_hash %}
+        <div class="text-muted form-label-small mt-2">
+          <i class="bi bi-info-circle me-1"></i>Tài khoản OAuth không cần thay đổi mật khẩu, nhưng bạn có thể đặt mật khẩu để đăng nhập trực tiếp nếu muốn.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card-custom mt-3">
+      <div class="card-header"><i class="bi bi-lightbulb me-2"></i>Mẹo</div>
+      <div class="p-3 profile-tips">
+        <ul class="mb-0 ps-3">
+          <li class="mb-1">Thông tin chính xác giúp AI gợi ý tốt hơn</li>
+          <li class="mb-1">Cập nhật cân nặng thường xuyên để theo dõi tiến trình</li>
+          <li>Mục tiêu calo phụ thuộc vào mức độ hoạt động của bạn</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if current_user.logged_in %}
+<div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-labelledby="deleteAccountModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteAccountModalLabel">Xác nhận xóa tài khoản</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-danger"><strong>Lưu ý:</strong> Hành động này sẽ xóa vĩnh viễn tài khoản của bạn và dữ liệu liên kết trong cơ sở dữ liệu.</p>
+           <!-- Always show a password field so users can confirm deletion by entering their password.
+             If the account doesn't have a password (OAuth-only), the backend will instruct the user
+             to set a password first. -->
+           <p id="delete-instructions">Vui lòng nhập mật khẩu để xác nhận:</p>
+           <input type="password" id="delete-password" class="form-control" placeholder="Mật khẩu">
+        <div id="delete-error" class="text-danger mt-2 profile-delete-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-btn" onclick="confirmDeleteAccount()">Xác nhận xóa</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'user/js/profile.js' %}"></script>
+{% endblock %}

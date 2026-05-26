@@ -1,0 +1,156 @@
+{% extends "user/base.html" %}
+{% load static %}
+{% block title %}Theo dõi dinh dưỡng — Nội Trợ AI{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h2><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Theo dõi dinh dưỡng</h2>
+    <p>Ghi lại và phân tích chế độ ăn uống của bạn</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <input type="date" id="date-picker" class="form-control form-control-sm" value="{{ selected_date }}"
+           onchange="location.href='?date='+this.value" class="nutrition-date-input">
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#logModal">
+      <i class="bi bi-plus-lg"></i> Ghi bữa ăn
+    </button>
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center">
+      <div class="icon mx-auto mb-2 nutrition-icon-calorie"><i class="bi bi-fire"></i></div>
+      <div class="value text-success">{{ total_cal }}</div>
+      <div class="label">kcal / {{ calorie_target }} mục tiêu</div>
+      <div class="progress mt-2">
+        <div class="progress-bar bg-success" style="width:{{ calorie_pct }}%"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center">
+      <div class="icon mx-auto mb-2 nutrition-icon-protein"><i class="bi bi-droplet-half"></i></div>
+      <div class="value nutrition-value-protein">{{ total_pro }}g</div>
+      <div class="label">Protein</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center">
+      <div class="icon mx-auto mb-2 nutrition-icon-carbs"><i class="bi bi-hexagon"></i></div>
+      <div class="value nutrition-value-carbs">{{ total_car }}g</div>
+      <div class="label">Carbohydrate</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center">
+      <div class="icon mx-auto mb-2 nutrition-icon-fat"><i class="bi bi-gem"></i></div>
+      <div class="value nutrition-value-fat">{{ total_fat }}g</div>
+      <div class="label">Chất béo</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <!-- Trend chart -->
+  <div class="col-lg-8">
+    <div class="card-custom h-100">
+      <div class="card-header"><i class="bi bi-bar-chart me-2"></i>Xu hướng 7 ngày</div>
+      <div class="p-3">
+        <canvas id="trendChart" height="160"></canvas>
+      </div>
+    </div>
+  </div>
+  <!-- Today's logs -->
+  <div class="col-lg-4">
+    <div class="card-custom h-100">
+      <div class="card-header"><i class="bi bi-list-ul me-2"></i>Bữa ăn ngày {{ selected_date }}</div>
+      <div class="p-2 nutrition-meals-list">
+        {% if day_logs %}
+        {% for log in day_logs %}
+        <div class="d-flex justify-content-between align-items-center p-2 border-bottom nutrition-meal-row">
+          <div>
+            <div class="fw-600">{{ log.food.name }}</div>
+            <span class="badge badge-meal
+              {% if log.meal_type == 'Bữa sáng' %}bg-warning text-dark
+              {% elif log.meal_type == 'Bữa trưa' %}bg-success text-white
+              {% elif log.meal_type == 'Bữa tối' %}bg-primary text-white
+              {% else %}bg-secondary text-white{% endif %}">{{ log.meal_type }}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <span class="text-success fw-bold">{{ log.total_calories|floatformat:0 }}</span>
+            <span class="text-muted nutrition-calorie-unit">kcal</span>
+            <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteLog({{ log.id }})">
+              <i class="bi bi-x-circle"></i>
+            </button>
+          </div>
+        </div>
+        {% endfor %}
+        <div class="px-2 py-1 text-end nutrition-meal-footer">
+          <strong>Tổng: {{ total_cal }} kcal</strong>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4 nutrition-empty-state">
+          <i class="bi bi-journal-x nutrition-empty-icon"></i><br>
+          Chưa có bữa ăn nào hôm nay
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Log Food Modal -->
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Ghi bữa ăn</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Ngày</label>
+          <input type="date" class="form-control" id="log-date" value="{{ selected_date }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Bữa ăn</label>
+          <select class="form-select" id="log-meal-type">
+            {% for v, l in meal_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tìm món ăn</label>
+          <input type="text" class="form-control mb-1" id="food-search-input" placeholder="Gõ tên món..." oninput="searchFoods(this.value)">
+          <select class="form-select" id="log-food" size="5" onchange="updateCalPreview()">
+            {% for food in foods %}
+            <option value="{{ food.id }}" data-cal="{{ food.calories|floatformat:2 }}" data-serving="{{ food.serving_size }}">
+              {{ food.name }} — {{ food.calories|floatformat:0 }} kcal
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Số khẩu phần</label>
+          <input type="number" class="form-control" id="log-servings" value="1" min="0.5" step="0.5" oninput="updateCalPreview()">
+        </div>
+        <div id="cal-preview" class="alert alert-success py-2 mb-0 nutrition-cal-preview"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+        <button class="btn btn-success" onclick="logFood()">Ghi lại</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{ trend_data|json_script:"trend-data" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'user/js/nutrition.js' %}?v=20260510-1"></script>
+{% endblock %}

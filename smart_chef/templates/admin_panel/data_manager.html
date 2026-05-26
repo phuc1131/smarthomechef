@@ -1,0 +1,275 @@
+{% extends "admin_panel/base.html" %}
+{% load static %}
+{% block title %}Quản lý dữ liệu admin{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="{% static 'admin_panel/css/data_manager.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="admin-shell">
+  <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <h2><i class="bi bi-database-gear me-2" style="color:#0f4c5c"></i>Quản lý dữ liệu admin</h2>
+      <p>Thống kê, lọc, xem nhanh bản ghi mới nhất và xuất CSV theo từng bảng</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/admin/" class="btn btn-outline-primary btn-sm"><i class="bi bi-shield-lock me-1"></i>Django admin</a>
+      <a href="/admin-panel/data-manager/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-clockwise me-1"></i>Lam moi</a>
+    </div>
+  </div>
+
+  <div class="admin-hero d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+      <h1 class="hero-title">Data manager dashboard</h1>
+      <p class="hero-subtitle">Quan sat du lieu toan he thong theo thoi gian thuc, co phan tich intent, xu huong 7 ngay, va truy cap CSV tung model.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <span class="pill"><i class="bi bi-grid-3x3-gap"></i>{{ total_models }} model</span>
+      <span class="pill"><i class="bi bi-database"></i>{{ total_rows }} ban ghi</span>
+      <span class="pill"><i class="bi bi-lightning-charge"></i>{{ total_recent_7d }} ban ghi / 7 ngay</span>
+    </div>
+  </div>
+
+  {% if messages %}
+  <div class="d-grid gap-2">
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags|default:'info' }} mb-0" role="alert">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="crawl-control-card d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+      <h3 class="crawl-title mb-1"><i class="bi bi-cloud-arrow-down me-2"></i>Dieu khien crawler du lieu</h3>
+      {% if crawl_scheduler.running %}
+      <p class="crawl-status running mb-0">Trang thai: Dang chay{% if crawl_scheduler.pid %} (PID {{ crawl_scheduler.pid }}){% endif %}{% if crawl_scheduler.started_at %} - bat dau luc {{ crawl_scheduler.started_at }}{% endif %}</p>
+      {% else %}
+      <p class="crawl-status stopped mb-0">Trang thai: Da dung</p>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" action="{% url 'admin_crawl_control' %}">
+        {% csrf_token %}
+        <input type="hidden" name="crawl_action" value="start">
+        <button type="submit" class="btn btn-success" {% if crawl_scheduler.running %}disabled{% endif %}>
+          <i class="bi bi-play-fill me-1"></i>Khoi dong crawl
+        </button>
+      </form>
+      <form method="post" action="{% url 'admin_crawl_control' %}">
+        {% csrf_token %}
+        <input type="hidden" name="crawl_action" value="stop">
+        <button type="submit" class="btn btn-outline-danger" {% if not crawl_scheduler.running %}disabled{% endif %}>
+          <i class="bi bi-stop-fill me-1"></i>Tat crawl
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="filter-card">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-lg-5">
+        <label class="form-label fw-semibold">Tim kiem model</label>
+        <input type="text" class="form-control" value="{{ search_text }}" placeholder="Account, Food, ChatMessage..." id="search-input">
+      </div>
+      <div class="col-12 col-lg-5">
+        <label class="form-label fw-semibold">Loc theo nhom</label>
+        <div class="group-tabs">
+          <a href="/admin-panel/data-manager/" class="{% if group_key == 'all' %}active{% endif %}">Tat ca</a>
+          {% for group in group_summaries %}
+          <a href="/admin-panel/data-manager/?group={{ group.key }}{% if search_text %}&q={{ search_text|urlencode }}{% endif %}" class="{% if group_key == group.key %}active{% endif %}">{{ group.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 col-lg-2 d-grid">
+        <button class="btn btn-primary" id="search-btn"><i class="bi bi-search me-1"></i>Tim</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-md-4">
+      <div class="mini-stat">
+        <div class="label">Tong model dang xem</div>
+        <div class="value">{{ total_models }}</div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="mini-stat">
+        <div class="label">Tong ban ghi</div>
+        <div class="value">{{ total_rows }}</div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="mini-stat">
+        <div class="label">Ban ghi moi 7 ngay</div>
+        <div class="value">{{ total_recent_7d }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    {% for group in group_summaries %}
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="mini-stat">
+        <div class="label">{{ group.label }}</div>
+        <div class="value">{{ group.rows }}</div>
+        <div class="model-meta mt-2">
+          <span class="meta-badge">{{ group.models }} model</span>
+          <span class="meta-badge">{{ group.recent_7d }} / 7 ngay</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-xl-5">
+      <div class="chart-card h-100">
+        <div class="chart-title">So luong du lieu theo model</div>
+        <canvas id="modelChart" height="240"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-xl-4">
+      <div class="chart-card h-100">
+        <div class="chart-title">Top model co nhieu ban ghi nhat</div>
+        <canvas id="topModelChart" height="240"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-xl-3">
+      <div class="chart-card h-100">
+        <div class="chart-title">Intent</div>
+        <canvas id="intentChart" height="240"></canvas>
+      </div>
+    </div>
+    <div class="col-12">
+      <div class="chart-card">
+        <div class="chart-title">Xu huong phat sinh du lieu 7 ngay</div>
+        <canvas id="trendChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label">Bang du lieu chi tiet</div>
+  <div class="row g-3">
+    {% for card in cards %}
+    <div class="col-12 col-xl-6">
+      <article class="model-card h-100">
+        <header class="model-head">
+          <div>
+            <h3 class="model-title">{{ card.label }}</h3>
+            <div class="model-meta">
+              <span class="meta-badge">{{ card.count }} ban ghi</span>
+              <span class="meta-badge">{{ card.recent_7d }} / 7 ngay</span>
+              <span class="meta-badge">{{ card.group }}</span>
+            </div>
+          </div>
+          <div class="d-flex flex-column gap-2 align-items-end">
+            <a href="{{ card.manage_url }}" class="btn btn-sm btn-success">Quan ly frontend</a>
+            <a href="{{ card.admin_url }}" class="btn btn-sm btn-primary">Mo admin</a>
+            <a href="{{ card.csv_url }}" class="btn btn-sm btn-outline-success">Export CSV</a>
+          </div>
+        </header>
+        <div class="p-3">
+          <div class="row g-2 mb-2">
+            {% for key, value in card.latest_snapshot.items %}
+            <div class="col-12 col-md-4">
+              <div class="mini-stat h-100 p-2">
+                <div class="label">{{ key }}</div>
+                <div style="font-size:.88rem;font-weight:600;word-break:break-word;">{{ value }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle">
+              <thead>
+                <tr>
+                  {% for col in card.columns %}
+                  <th>{{ col }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% if card.rows %}
+                  {% for row in card.rows %}
+                  <tr>
+                    {% for value in row.cells %}
+                    <td>{{ value }}</td>
+                    {% endfor %}
+                  </tr>
+                  {% endfor %}
+                {% else %}
+                <tr>
+                  <td colspan="{{ card.columns|length }}" class="text-muted">Chua co du lieu</td>
+                </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section-label">Bang thong ke tong hop</div>
+  <div class="chart-card">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 stats-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Model</th>
+            <th>So ban ghi</th>
+            <th>Moi 7 ngay</th>
+            <th>Nhom</th>
+            <th>Quan ly</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if stats_table %}
+            {% for row in stats_table %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td>{{ row.label }}</td>
+              <td><span class="meta-badge">{{ row.count }}</span></td>
+              <td><span class="meta-badge">{{ row.recent_7d }}</span></td>
+              <td>{{ row.group }}</td>
+              <td>
+                <div class="d-flex gap-1 flex-wrap">
+                  <a href="{{ row.manage_url }}" class="btn btn-sm btn-success">Frontend</a>
+                  <a href="{{ row.admin_url }}" class="btn btn-sm btn-outline-primary">Admin</a>
+                  <a href="{{ row.csv_url }}" class="btn btn-sm btn-outline-success">CSV</a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="6" class="text-muted">Khong co du lieu thong ke.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.ADMIN_DASHBOARD_DATA = {
+  modelLabels: {{ model_chart_labels|safe }},
+  modelCounts: {{ model_chart_counts|safe }},
+  topModelLabels: {{ top_model_labels|safe }},
+  topModelCounts: {{ top_model_counts|safe }},
+  trendLabels: {{ trend_labels|safe }},
+  trendChat: {{ trend_chat|safe }},
+  trendMeal: {{ trend_meal|safe }},
+  trendNutrition: {{ trend_nutrition|safe }},
+  intentLabels: {{ intent_labels|safe }},
+  intentCounts: {{ intent_counts|safe }}
+};
+</script>
+<script src="{% static 'admin_panel/js/data_manager.js' %}"></script>
+{% endblock %}

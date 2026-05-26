@@ -1,0 +1,224 @@
+{% extends "user/base.html" %}
+{% block title %}Tổng quan — Nội Trợ AI{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2><i class="bi bi-house-heart me-2 text-primary"></i>Tổng quan hôm nay</h2>
+  <p>{{ today|date:"l, d/m/Y" }}</p>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for card in nutrition_cards %}
+  <div class="col-12 col-lg-3">
+    <div class="stat-card h-100">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="flex-grow-1">
+          {% if card.metric == 'kcal' %}
+          <div class="value text-success">{{ card.current|floatformat:0 }}</div>
+          <div class="label">kcal hôm nay</div>
+          {% elif card.metric == 'protein' %}
+          <div class="value dashboard-value-protein">{{ card.current|floatformat:1 }}g</div>
+          <div class="label">Protein</div>
+          {% elif card.metric == 'carbs' %}
+          <div class="value dashboard-value-carbs">{{ card.current|floatformat:1 }}g</div>
+          <div class="label">Carbohydrate</div>
+          {% else %}
+          <div class="value dashboard-value-fat">{{ card.current|floatformat:1 }}g</div>
+          <div class="label">Chất béo</div>
+          {% endif %}
+
+          <div class="mt-2 small text-muted">Mục tiêu: {{ card.target|floatformat:1 }} | {{ card.percent|floatformat:1 }}%</div>
+          <div class="mt-1">
+            {% if card.status == 'thiếu' %}
+            <span class="badge bg-danger-subtle text-danger">Thiếu {{ card.remaining|floatformat:1 }}</span>
+            {% elif card.status == 'đủ' or card.status == 'đạt' %}
+            <span class="badge bg-success-subtle text-success">Đủ mục tiêu</span>
+            {% elif card.status == 'hơi cao' %}
+            <span class="badge bg-warning-subtle text-warning">Hơi cao</span>
+            {% else %}
+            <span class="badge bg-danger-subtle text-danger">Vượt {{ card.remaining|floatformat:1 }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="icon dashboard-icon-bg">
+          {% if card.metric == 'kcal' %}<i class="bi bi-fire"></i>{% elif card.metric == 'protein' %}<i class="bi bi-droplet-half"></i>{% elif card.metric == 'carbs' %}<i class="bi bi-hexagon"></i>{% else %}<i class="bi bi-gem"></i>{% endif %}
+        </div>
+      </div>
+      <div class="progress mt-3 dashboard-progress">
+        <div class="progress-bar {% if card.direction == 'danger' %}bg-danger{% elif card.direction == 'warn' %}bg-warning{% else %}bg-success{% endif %}" style="width:{{ card.percent|default:0 }}%"></div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center h-100">
+      <div class="value text-warning">{{ streak }}</div>
+      <div class="label"><i class="bi bi-lightning-charge text-warning"></i> Ngày liên tiếp</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center h-100">
+      <div class="value text-primary">{{ meals_logged }}</div>
+      <div class="label"><i class="bi bi-journal-check"></i> Bữa đã ghi hôm nay</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center h-100">
+      <div class="value text-primary">{{ week_plans }}</div>
+      <div class="label"><i class="bi bi-calendar3"></i> Thực đơn tuần này</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card text-center h-100">
+      <div class="value text-secondary">{{ total_foods }}</div>
+      <div class="label"><i class="bi bi-egg-fried"></i> Món ăn trong CSDL</div>
+    </div>
+  </div>
+</div>
+
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-bar-chart-line me-2 text-primary"></i>So sánh hôm nay</span>
+    <small class="text-muted">Hôm nay, hôm qua, trung bình 7 ngày</small>
+  </div>
+  <div class="p-3">
+    <div class="row g-3">
+      {% for card in nutrition_cards %}
+      <div class="col-12 col-lg-3">
+        <div class="food-card h-100">
+          <div class="fw-600 dashboard-metric-title">{{ card.metric }}</div>
+          <div class="mt-2">
+            <div class="small text-muted">Hôm nay: <strong>{{ card.current|floatformat:1 }}</strong></div>
+            <div class="small text-muted">Hôm qua: <strong>{{ card.yesterday|floatformat:1 }}</strong></div>
+            <div class="small text-muted">TB 7 ngày: <strong>{{ card.weekly_avg|floatformat:1 }}</strong></div>
+          </div>
+          <div class="mt-3 small">
+            <div class="mb-1">So với hôm qua: 
+              {% if card.vs_yesterday > 0 %}
+              <span class="text-danger">+{{ card.vs_yesterday|floatformat:1 }}</span>
+              {% elif card.vs_yesterday < 0 %}
+              <span class="text-success">{{ card.vs_yesterday|floatformat:1 }}</span>
+              {% else %}
+              <span class="text-muted">0</span>
+              {% endif %}
+            </div>
+            <div>So với TB 7 ngày: 
+              {% if card.vs_weekly_avg > 0 %}
+              <span class="text-danger">+{{ card.vs_weekly_avg|floatformat:1 }}</span>
+              {% elif card.vs_weekly_avg < 0 %}
+              <span class="text-success">{{ card.vs_weekly_avg|floatformat:1 }}</span>
+              {% else %}
+              <span class="text-muted">0</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-clipboard-data me-2 text-success"></i>Bảng theo dõi đã lưu</span>
+    <a href="/theo-doi/" class="btn btn-sm btn-outline-success">Mở trang theo dõi</a>
+  </div>
+  <div class="p-3">
+    {% if tracking_rows %}
+    <div class="table-responsive">
+      <table class="table align-middle mb-0 dashboard-stats-table">
+        <thead>
+          <tr class="text-muted">
+            <th>Món ăn</th>
+            <th>Bữa</th>
+            <th>Khẩu phần</th>
+            <th>Kcal</th>
+            <th>Protein</th>
+            <th>Carbs</th>
+            <th>Fat</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tracking_rows %}
+          <tr>
+            <td class="fw-semibold">{{ row.food_name }}</td>
+            <td><span class="badge bg-light text-dark border">{{ row.meal_type }}</span></td>
+            <td>{{ row.servings|floatformat:1 }}</td>
+            <td>{{ row.calories|floatformat:0 }}</td>
+            <td>{{ row.protein|floatformat:1 }}g</td>
+            <td>{{ row.carbs|floatformat:1 }}g</td>
+            <td>{{ row.fat|floatformat:1 }}g</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-4">
+      <i class="bi bi-journal-x dashboard-empty-icon"></i>
+      <div class="mt-2">Chưa có dữ liệu được lưu từ trang theo dõi hôm nay</div>
+      <a href="/theo-doi/" class="btn btn-sm btn-success mt-2">Ghi bữa ăn ngay</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-stars me-2 text-warning"></i>Gợi ý hành động</span>
+    <small class="text-muted">Rule-based, không phụ thuộc AI</small>
+  </div>
+  <div class="p-3">
+    <div class="row g-3">
+      {% for item in nutrition_suggestions %}
+      <div class="col-12 col-lg-6">
+        <div class="food-card h-100 border-start border-4 {% if item.type == 'danger' %}border-danger{% elif item.type == 'warning' %}border-warning{% elif item.type == 'primary' %}border-primary{% else %}border-success{% endif %}">
+          <div class="fw-600 dashboard-health-item-title">{{ item.title }}</div>
+          <div class="mt-2 text-muted dashboard-health-item-text">{{ item.text }}</div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="col-12 text-center text-muted py-3">
+        <i class="bi bi-info-circle"></i> Chưa có gợi ý
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card-custom">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-stars me-2 text-warning"></i>Gợi ý món ăn hôm nay</span>
+    <a href="/mon-an/" class="btn btn-sm btn-outline-success">Xem tất cả</a>
+  </div>
+  <div class="p-3">
+    <div class="row g-3">
+      {% for food in food_recommendations %}
+      <div class="col-6 col-lg-3">
+        <div class="food-card">
+          <div class="fw-600 dashboard-food-name">{{ food.name }}</div>
+          <div class="text-muted dashboard-food-category">{{ food.category }}</div>
+          <div class="mt-2 d-flex gap-2 flex-wrap">
+            <span class="badge bg-success bg-opacity-10 text-success dashboard-food-badge">
+              🔥 {{ food.calories|floatformat:0 }} kcal
+            </span>
+            <span class="badge bg-primary bg-opacity-10 text-primary dashboard-food-badge">
+              💪 {{ food.protein|floatformat:1 }}g P
+            </span>
+          </div>
+          <div class="mt-1 text-muted dashboard-food-serving">{{ food.serving_size }}</div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="col-12 text-center text-muted py-3">
+        <i class="bi bi-info-circle"></i> Chưa có dữ liệu món ăn
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

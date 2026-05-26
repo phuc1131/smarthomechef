@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
                 ('food', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='app.food')),
             ],
             options={
-                'db_table': 'app_mealplan',
+                'db_table': 'meal_plans',
             },
         ),
         migrations.CreateModel(
