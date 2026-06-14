@@ -14,6 +14,7 @@ from apps.users.models import Account, UserFeedback
 from apps.nutrition.models import Food, NutritionLog, FoodIngredient
 from apps.meal_plans.models import MealPlan
 from apps.chat.models import ChatMessage, MessageIntent
+from app.services.ai_quality_service import get_ai_quality_dashboard
 from apps.users.auth_utils import verify_account_password
 from apps.users.views import (
     _set_auth_session,
@@ -312,6 +313,31 @@ def admin_data_manager(request):
         'crawl_scheduler': crawl_scheduler,
     }
     return render(request, 'admin_panel/data_manager.html', context)
+
+
+def admin_ai_quality_dashboard(request):
+    if not is_admin_actor(request):
+        return _redirect_admin_login(request)
+
+    days = request.GET.get('days', '7').strip() or '7'
+    try:
+        days_value = max(1, min(int(days), 30))
+    except ValueError:
+        days_value = 7
+
+    dashboard = get_ai_quality_dashboard(days=days_value)
+    context = {
+        'active': 'admin_ai_quality',
+        'days': days_value,
+        'summary': dashboard['summary'],
+        'provider_rows': dashboard['provider_rows'],
+        'trend_labels': json.dumps(dashboard['trend']['labels']),
+        'trend_local': json.dumps(dashboard['trend']['local']),
+        'trend_gemini': json.dumps(dashboard['trend']['gemini']),
+        'trend_cache': json.dumps(dashboard['trend']['cache']),
+        'trend_latency': json.dumps(dashboard['trend']['latency_ms']),
+    }
+    return render(request, 'admin_panel/ai_quality.html', context)
 
 
 @require_POST

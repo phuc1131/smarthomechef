@@ -1,4 +1,6 @@
-marked.setOptions({ breaks: true, gfm: true });
+if (window.marked && typeof window.marked.setOptions === 'function') {
+  window.marked.setOptions({ breaks: true, gfm: true });
+}
 
 const messagesDiv = document.getElementById('chat-messages');
 const typing = document.getElementById('typing-indicator');
@@ -15,8 +17,20 @@ function renderMsg(role, content) {
   const wrap = document.createElement('div');
   wrap.className = `d-flex ${isUser ? 'justify-content-end' : 'justify-content-start'} mb-2`;
   if (!isUser) {
-    // Tin nhắn trợ lý hỗ trợ render markdown.
-    const html = marked.parse(content);
+    // Tin nhắn trợ lý hỗ trợ render markdown, nhưng vẫn fallback nếu CDN markdown lỗi.
+    const assistantText = typeof content === 'string' ? content : String(content ?? '');
+    let html = assistantText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+    try {
+      if (window.marked && typeof window.marked.parse === 'function') {
+        html = window.marked.parse(assistantText);
+      }
+    } catch (e) {
+      console.error('Markdown render failed:', e);
+    }
     wrap.innerHTML = `
       <div class="me-2 mt-1" style="width:28px;height:28px;border-radius:50%;background:#e8f5e9;display:flex;align-items:center;justify-content:center;flex-shrink:0">
         <i class="bi bi-robot text-success" style="font-size:.75rem"></i>
@@ -25,8 +39,8 @@ function renderMsg(role, content) {
     
     // Detect recipe ID from response (if present)
     try {
-      const recipeIdMatch = content.match(/recipe_id["\']?\s*[:=]\s*["\']?(\d+)/i) || 
-                           content.match(/recipe["\']?\s*[:#]\s*["\']?(\d+)/i);
+      const recipeIdMatch = assistantText.match(/recipe_id["\']?\s*[:=]\s*["\']?(\d+)/i) || 
+                           assistantText.match(/recipe["\']?\s*[:#]\s*["\']?(\d+)/i);
       if (recipeIdMatch && recipeIdMatch[1]) {
         window.currentRecipeId = parseInt(recipeIdMatch[1]);
         console.log('Recipe ID detected:', window.currentRecipeId);
@@ -76,28 +90,45 @@ document.getElementById('chat-form').addEventListener('submit', async (e) => {
   scrollBottom();
 
   try {
-    const res = await fetch('/api/chat/send/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-      body: JSON.stringify({ message: msg }),
-    });
-    const raw = await res.text();
-    let data = {};
-    try {
-      data = raw ? JSON.parse(raw) : {};
-    } catch {
-      data = {};
-    }
-    typing.classList.remove('show');
-    if (!res.ok) {
-      const err = data.error || `Không thể xử lý tin nhắn (HTTP ${res.status}).`;
-      renderMsg('assistant', err);
-    } else {
-      let assistantText = data.content || 'Không có phản hồi từ AI.';
-      if (data.meal_plan_created && data.meal_plan_url) {
-        assistantText += `\n\n[Đi tới trang Thực đơn](${data.meal_plan_url})`;
+    const chatEndpoints = ['/api/chat/send/', '/chat/send/'];
+    let handled = false;
+    let lastFailure = '';
+
+    for (const endpoint of chatEndpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+          body: JSON.stringify({ message: msg }),
+        });
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          data = {};
+        }
+        if (!res.ok) {
+          lastFailure = data.error || `Không thể xử lý tin nhắn (HTTP ${res.status}).`;
+          continue;
+        }
+
+        typing.classList.remove('show');
+        let assistantText = data.content || 'Không có phản hồi từ AI.';
+        if (data.meal_plan_created && data.meal_plan_url) {
+          assistantText += `\n\n[Đi tới trang Thực đơn](${data.meal_plan_url})`;
+        }
+        renderMsg('assistant', assistantText);
+        handled = true;
+        break;
+      } catch (err) {
+        lastFailure = err && err.message ? err.message : 'Network error';
       }
-      renderMsg('assistant', assistantText);
+    }
+
+    if (!handled) {
+      typing.classList.remove('show');
+      renderMsg('assistant', lastFailure || 'Xin lỗi, có lỗi xảy ra. Vui lòng thử lại.');
     }
   } catch {
     typing.classList.remove('show');

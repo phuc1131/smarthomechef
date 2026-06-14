@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 
 import pytest
 from django.test import Client
@@ -8,6 +9,8 @@ from apps.users.models import Account
 from apps.nutrition.models import Food, FoodCategory, NutritionLog
 from apps.meal_plans.models import MealPlan
 from apps.chat.models import ChatMessage, ChatSession, Intent, Pattern
+from apps.core_models.models import SearchEvent
+from apps.core_models.ai_learning_models import AIRequestLog
 from apps.users.models import UserProfile
 
 pytestmark = pytest.mark.django_db
@@ -167,6 +170,7 @@ def test_tc008_tinh_luong_dinh_duong_nap_vao(client):
     account = create_user("user_tc008")
     login(client, "user_tc008")
     food = create_food("Ức gà", calories=165, protein=31, carbs=0, fat=3.6)
+    today = date.today().isoformat()
 
     response = client.post(
         "/theo-doi/ghi/",
@@ -174,7 +178,7 @@ def test_tc008_tinh_luong_dinh_duong_nap_vao(client):
             {
                 "food_id": food.id,
                 "servings": 2,
-                "date": "2026-05-24",
+                "date": today,
                 "meal_type": "Bữa tối",
             }
         ),
@@ -255,10 +259,11 @@ def test_tc012_xem_dashboard_hang_ngay(client):
     account = create_user("user_tc012")
     login(client, "user_tc012")
     food = create_food("Thịt lợn", calories=250, protein=26, carbs=0, fat=13)
+    today = date.today().isoformat()
     NutritionLog.objects.create(
         account=account,
         food=food,
-        date="2026-05-24",
+        date=today,
         meal_type="Bữa trưa",
         servings=1,
     )
@@ -278,8 +283,10 @@ def test_tc013_so_sanh_dinh_duong(client):
     login(client, "user_tc013")
     food_today = create_food("Tôm", calories=100, protein=24, carbs=1, fat=1)
     food_yesterday = create_food("Tôm cũ", calories=80, protein=20, carbs=1, fat=1)
-    NutritionLog.objects.create(account=account, food=food_today, date="2026-05-24", meal_type="Bữa sáng", servings=1)
-    NutritionLog.objects.create(account=account, food=food_yesterday, date="2026-05-23", meal_type="Bữa sáng", servings=1)
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    NutritionLog.objects.create(account=account, food=food_today, date=today, meal_type="Bữa sáng", servings=1)
+    NutritionLog.objects.create(account=account, food=food_yesterday, date=yesterday, meal_type="Bữa sáng", servings=1)
 
     response = client.get("/")
 
@@ -427,6 +434,120 @@ def test_tc021_gui_tin_nhan_chat(client):
     payload = response.json()
     assert payload["role"] == "assistant"
     assert "content" in payload
+
+
+def test_tc021b_chat_send_gemini_fallback_logs_search_event(client, monkeypatch):
+    from app.features.user_panel import views as user_panel_views
+    import app.services.external_apis as external_apis
+    import app.services.ai_orchestrator_service as ai_orchestrator
+
+    account = create_user("user_tc021b")
+    login(client, "user_tc021b")
+
+    def fake_orchestrate(user_text, account_obj, chat_session, call_gemini=False, top_k=5):
+        return {
+            'path': 'gemini',
+            'intent_name': None,
+            'intent_confidence': 0.0,
+            'personalization_context': {},
+            'candidates': [],
+            'rag_evidence': {'foods': [], 'recipes': [], 'ingredients': []},
+            'decision': 'gemini_fallback',
+        }
+
+    monkeypatch.setattr(user_panel_views.AIOrchestratorService, 'orchestrate', staticmethod(fake_orchestrate))
+    monkeypatch.setattr(user_panel_views, '_service_call_gemini_with_debug', lambda chat_session, system_context: ('Gemini response text', None))
+    monkeypatch.setattr(user_panel_views, '_route_chat_intent', lambda *args, **kwargs: None)
+    monkeypatch.setattr(user_panel_views, '_find_saved_chat_answer', lambda *args, **kwargs: None)
+    monkeypatch.setattr(external_apis, 'save_chat_response_to_cache', lambda *args, **kwargs: None)
+    monkeypatch.setattr(user_panel_views, 'AI_AVAILABLE', True)
+    monkeypatch.setattr(ai_orchestrator, 'GEMINI_ENABLED', True)
+
+    before_count = SearchEvent.objects.count()
+    response = client.post(
+        "/chat/send/",
+        data=json.dumps({"message": "Cho tôi gợi ý món ăn."}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["role"] == "assistant"
+    assert payload["content"] == "Gemini response text"
+    assert SearchEvent.objects.count() == before_count + 1
+    ai_log = AIRequestLog.objects.order_by("-id").first()
+    assert ai_log is not None
+    assert ai_log.provider == "gemini"
+    assert ai_log.response_ok is True
+
+
+def test_chat_send_rejects_off_topic_cache_and_uses_valid_gemini_response(client, monkeypatch):
+    from app.features.user_panel import views as user_panel_views
+    import app.services.external_apis as external_apis
+    import app.services.ai_orchestrator_service as ai_orchestrator
+
+    create_user("user_guard_01")
+    login(client, "user_guard_01")
+
+    def fake_orchestrate(user_text, account_obj, chat_session, call_gemini=False, top_k=5):
+        return {
+            'path': 'gemini',
+            'intent_name': 'price',
+            'intent_confidence': 0.95,
+            'personalization_context': {},
+            'candidates': [],
+            'rag_evidence': {'foods': [], 'recipes': [], 'ingredients': []},
+            'decision': 'gemini_guarded',
+        }
+
+    monkeypatch.setattr(user_panel_views.AIOrchestratorService, 'orchestrate', staticmethod(fake_orchestrate))
+    monkeypatch.setattr(user_panel_views, '_service_call_gemini_with_debug', lambda chat_session, system_context: ('Gia uoc tinh ca chua la 25000 dong/kg.', None))
+    monkeypatch.setattr(user_panel_views, '_route_chat_intent', lambda *args, **kwargs: None)
+    monkeypatch.setattr(user_panel_views, '_find_saved_chat_answer', lambda *args, **kwargs: {'response': 'Cong thuc nau ca chua xao trung gom 3 buoc.'})
+    monkeypatch.setattr(external_apis, 'save_chat_response_to_cache', lambda *args, **kwargs: None)
+    monkeypatch.setattr(user_panel_views, 'AI_AVAILABLE', True)
+    monkeypatch.setattr(ai_orchestrator, 'GEMINI_ENABLED', True)
+
+    response = client.post(
+        "/chat/send/",
+        data=json.dumps({"message": "Gia ca chua bao nhieu?"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["content"] == "Gia uoc tinh ca chua la 25000 dong/kg."
+
+    rejected_log = AIRequestLog.objects.filter(
+        provider="cache",
+        route_path="rejected",
+        response_ok=False,
+    ).order_by("-id").first()
+    assert rejected_log is not None
+
+    final_log = AIRequestLog.objects.filter(provider="gemini", response_ok=True).order_by("-id").first()
+    assert final_log is not None
+
+
+def test_tc021c_admin_ai_quality_dashboard(client):
+    create_admin("admin_tc021c")
+    client.post(
+        "/admin-panel/login/submit/",
+        data={"username": "admin_tc021c", "password": "Password123", "next_url": ""},
+    )
+    AIRequestLog.objects.create(
+        provider="local_rule",
+        route_path="local",
+        decision="test_dashboard",
+        cache_hit=False,
+        latency_ms=12,
+        response_ok=True,
+    )
+
+    response = client.get("/admin-panel/ai-quality/?days=7")
+
+    assert response.status_code == 200
+    assert response.context["summary"]["total_requests"] >= 1
 
 
 

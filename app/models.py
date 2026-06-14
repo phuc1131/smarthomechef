@@ -1,5 +1,6 @@
 from apps.chat.models import ChatMessage, ChatResponseCache, ChatSession, ChatSummary, Intent, IntentEmbedding, MessageIntent, Pattern
 from apps.core_models.models import AIRecommendation, SearchEvent
+from apps.core_models.ai_learning_models import AIRequestLog
 from apps.meal_plans.models import MealPlan
 from apps.nutrition.models import (
     DailyNutritionSummary,
@@ -35,6 +36,7 @@ from apps.users.models import (
 __all__ = [
     'Account',
     'AIRecommendation',
+    'AIRequestLog',
     'ChatMessage',
     'ChatResponseCache',
     'ChatSession',

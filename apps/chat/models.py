@@ -223,25 +223,29 @@ class IntentEmbedding(models.Model):
 class ChatResponseCache(models.Model):
     #     Mô hình cache các câu trả lời từ Gemini API để tránh gọi API lặp lại.
 #     
-#     Chiến lược cache:
-#     1. Khi user gửi câu hỏi mới, normalize và tìm kiếm trong DB
-#     2. Nếu tìm thấy cache có similarity >= threshold (0.70), reuse cached response
-#     3. Nếu không, gọi Gemini API và save response + normalized query vào cache
+#     Chiến lược cache cải thiện:
+#     1. Khi user gửi câu hỏi mới, phân loại intent trước
+#     2. Tìm cache trong nhóm intent đó, dùng similarity >= threshold (0.75+)
+#     3. Nếu intent không match, dùng fallback general cache
+#     4. Nếu không có cache, gọi Gemini API và lưu vào cache với intent_name
 #     
 #     Trường:
-#     - normalized_query: Câu hỏi sau khi normalize (lowercase, remove punctuation)
+#     - normalized_query: Câu hỏi sau khi normalize (lowercase, remove punct, lemmatize)
 #     - original_query: Câu hỏi gốc từ user (để reference)
 #     - response: Câu trả lời từ Gemini API
+#     - intent_name: Intent của câu hỏi (meal_plan, nutrition, recipe, vv) để group cache
 #     - usage_count: Số lần response này được reuse (metrics)
 #     - created_at: Thời điểm tạo cache
 #     
 #     GHI NHỚ:
 #     - Được tạo sau khi Gemini trả lời thành công
+#     - intent_name giúp matching tập trung vào intent tương tự (tăng độ chính xác)
 #     - Cleanup task nên xóa entries cũ (>30 days) để giữ DB size manageable
-#     - Similarity threshold nên tunable via settings
+#     - Similarity threshold nên tunable via settings (hiện tại 0.75)
     normalized_query = models.TextField(help_text='Query sau khi normalize (lowercase, remove punct, lemmatize)')
     original_query = models.TextField(help_text='Query gốc từ user')
     response = models.TextField(null=True, blank=True, help_text='Full response từ Gemini API')
+    intent_name = models.CharField(max_length=100, null=True, blank=True, help_text='Intent của câu hỏi (meal_plan, nutrition, recipe, recommendation, vv)')
     usage_count = models.IntegerField(default=0, help_text='Số lần response này được reuse (metrics)')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -249,6 +253,7 @@ class ChatResponseCache(models.Model):
         db_table = 'chat_response_caches'
         indexes = [
             models.Index(fields=['normalized_query']),
+            models.Index(fields=['intent_name', 'created_at']),
             models.Index(fields=['created_at']),
         ]
 

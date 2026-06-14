@@ -62,6 +62,8 @@
           {% if food.serving_size %}
           <div class="foods-serving-size"><i class="bi bi-rulers me-1"></i>{{ food.serving_size }}</div>
           {% endif %}
+
+          <a href="/mon-an/{{ food.id }}/" class="btn btn-sm btn-outline-success mt-3">Xem chi tiết</a>
         </div>
       </div>
       {% endfor %}
@@ -167,19 +169,10 @@
       <div class="foods-result-serving"><i class="bi bi-rulers me-1"></i>{{ food.serving_size }}</div>
       {% endif %}
 
-      <!-- Rating Section (user-side rating for this food) -->
       <div class="mt-3 pt-3 border-top">
-        <div class="foods-result-note">
-          <i class="bi bi-star-fill text-warning"></i>
-          {% if food.rating_avg %}
-            <span class="fw-bold">{{ food.rating_avg|floatformat:1 }}/5</span> ({{ food.rating_count }} đánh giá)
-          {% else %}
-            <span class="text-muted">Chưa có đánh giá</span>
-          {% endif %}
-        </div>
-        <button class="btn btn-sm btn-outline-warning w-100" onclick="showRatingModal({{ food.id }}, '{{ food.name }}')">
-          <i class="bi bi-star me-1"></i>Đánh giá
-        </button>
+        <a href="/mon-an/{{ food.id }}/" class="btn btn-sm btn-success w-100">
+          Xem chi tiết món ăn
+        </a>
       </div>
     </div>
   </div>
@@ -192,6 +185,4 @@
   {% endfor %}
 </div>
 
-<!-- Recipe Rating Modal (user-side) -->
-<!-- Recipe Rating Modal removed per request -->
 {% endblock %}

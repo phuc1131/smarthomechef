@@ -1,0 +1,156 @@
+groups:
+  - name: django_application
+    interval: 30s
+    rules:
+      # HTTP Requests
+      - alert: HighHTTPErrorRate
+        expr: |
+          (sum(rate(django_http_requests_total{status=~"5.."}[5m])) / 
+           sum(rate(django_http_requests_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate detected (>5%)"
+          description: "{{ $value | humanizePercentage }} of requests are errors"
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            rate(django_http_request_duration_seconds_bucket[5m])) > 2.0
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "High HTTP response time (p95 > 2s)"
+          description: "95th percentile response time: {{ $value | humanizeDuration }}"
+
+      - alert: HighRequestRate
+        expr: |
+          sum(rate(django_http_requests_total[5m])) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request rate (>1000 req/s)"
+          description: "Current rate: {{ $value | humanize }} requests/sec"
+
+  - name: database
+    interval: 30s
+    rules:
+      - alert: HighDatabaseConnectionCount
+        expr: |
+          django_db_connection_count > 90
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "High database connection count"
+          description: "Current connections: {{ $value }}"
+
+      - alert: SlowDatabaseQueries
+        expr: |
+          rate(django_db_queries_duration_seconds_sum[5m]) / 
+          rate(django_db_queries_duration_seconds_count[5m]) > 1.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow database queries detected (>1s average)"
+          description: "Average query time: {{ $value | humanizeDuration }}"
+
+  - name: cache
+    interval: 30s
+    rules:
+      - alert: LowCacheHitRate
+        expr: |
+          django_cache_hits / (django_cache_hits + django_cache_misses) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate (<70%)"
+          description: "Current hit rate: {{ $value | humanizePercentage }}"
+
+  - name: ai_models
+    interval: 1m
+    rules:
+      - alert: StaleIntentModel
+        expr: |
+          (time() - django_model_metadata_created_at{model_name="intent_classifier"}) > 86400
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Intent classifier model is stale (>24 hours)"
+          description: "Model age: {{ $value | humanizeDuration }}"
+
+      - alert: LowIntentClassifierConfidence
+        expr: |
+          django_intent_classifier_confidence_avg < 0.6
+        for: 15m
+        labels:
+          severity: high
+        annotations:
+          summary: "Intent classifier confidence is low (<60%)"
+          description: "Average confidence: {{ $value | humanizePercentage }}"
+
+  - name: system
+    interval: 30s
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (container_memory_usage_bytes{name="smart-chef-web"} / 
+           container_spec_memory_limit_bytes{name="smart-chef-web"}) > 0.85
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "High memory usage (>85%)"
+          description: "Memory usage: {{ $value | humanizePercentage }}"
+
+      - alert: DiskSpaceRunningOut
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / 
+           node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space running out (<10%)"
+          description: "Available space: {{ $value | humanizePercentage }}"
+
+  - name: gemini_api
+    interval: 1m
+    rules:
+      - alert: GeminiAPIQuotaExhausted
+        expr: |
+          rate(django_gemini_api_errors_total{error_type="RESOURCE_EXHAUSTED"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gemini API quota exhausted"
+          description: "Fallback to local recommendations enabled"
+
+      - alert: HighGeminiAPILatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(django_gemini_api_duration_seconds_bucket[5m])) > 10.0
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "High Gemini API latency (p95 > 10s)"
+          description: "95th percentile: {{ $value | humanizeDuration }}"
+
+      - alert: GeminiAPIErrorRate
+        expr: |
+          (sum(rate(django_gemini_api_errors_total[5m])) / 
+           sum(rate(django_gemini_api_requests_total[5m]))) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Gemini API error rate (>10%)"
+          description: "Error rate: {{ $value | humanizePercentage }}"

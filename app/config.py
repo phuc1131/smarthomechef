@@ -69,15 +69,23 @@ DEBUG = _get_env_bool('DEBUG', default=True)
 # ============================================================================
 
 GEMINI_API_KEY = _get_env('GEMINI_API_KEY', required=False)
-GEMINI_MODEL = _get_env('GEMINI_MODEL', default='gemini-2.5-flash')
+GEMINI_MODEL = _get_env('GEMINI_MODEL', default='gemini-1.5-flash')
 GEMINI_BASE_URL = _get_env('AI_INTEGRATIONS_GEMINI_BASE_URL', required=False)
 GEMINI_KEY_NAME = _get_env('GEMINI_KEY_NAME', default='test')
 
 # Flag to indicate if Gemini is properly configured
 GEMINI_ENABLED = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and GEMINI_API_KEY != 'dummy')
 
+# Local Qwen model integration (uses Ollama with OpenAI-compatible API)
+OLLAMA_BASE_URL = _get_env('OLLAMA_BASE_URL', default='http://localhost:11434/v1')
+OLLAMA_MODEL = _get_env('OLLAMA_MODEL', default='qwen2.5:7b')
+OLLAMA_API_KEY = _get_env('OLLAMA_API_KEY', default='ollama')
+OLLAMA_ENABLED = _get_env_bool('OLLAMA_ENABLED', default=True)  # Enable by default if Ollama server is running
+
 # How many times to retry Gemini calls when rate limited or transient errors occur
 GEMINI_RETRIES = int(_get_env('GEMINI_RETRIES', default='3'))
+GEMINI_ESTIMATED_COST_USD = float(_get_env('GEMINI_ESTIMATED_COST_USD', default='0.0'))
+LOCAL_LLM_ESTIMATED_COST_USD = float(_get_env('LOCAL_LLM_ESTIMATED_COST_USD', default='0.0'))
 
 
 # ============================================================================

@@ -12,20 +12,31 @@ GHI NHỚ QUAN TRỌNG:
 - Spoonacular results được cache vào database → giảm API quota
 """
 
+import logging
 import os
 import json
+import re
+import unicodedata
 from decimal import Decimal
 
 from app.config import (
     GEMINI_API_KEY, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_ENABLED,
-    SPOONACULAR_API_KEY, SPOONACULAR_TIMEOUT, SPOONACULAR_BASE_URL,
+    OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_API_KEY, OLLAMA_ENABLED,
+    SPOONACULAR_API_KEY, SPOONACULAR_ENABLED, SPOONACULAR_TIMEOUT, SPOONACULAR_RETRIES,
+    SPOONACULAR_BASE_URL,
     SPOONACULAR_SEARCH_URL, SPOONACULAR_INGREDIENT_SEARCH_URL, SPOONACULAR_COMPLEX_SEARCH_URL,
     SPOONACULAR_RECIPE_INFO_URL_TEMPLATE, SPOONACULAR_INGREDIENT_INFO_URL_TEMPLATE,
     THEMEALDB_BASE_URL, THEMEALDB_SEARCH_URL, THEMEALDB_LOOKUP_URL, THEMEALDB_AUTO_TRANSLATE
 )
 import requests
 import time
-from app.config import SPOONACULAR_TIMEOUT, SPOONACULAR_RETRIES
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+logger = logging.getLogger(__name__)
 
 from apps.chat.models import ChatMessage
 from apps.nutrition.models import Food, FoodCategory, Recipe
@@ -52,10 +63,32 @@ def get_spoonacular_last_error():
 # PHáº¦N 1: GEMINI LLM INTEGRATION
 # ============================================================================
 
+
+def _is_cacheable_chat_response(response_text):
+    text = (response_text or '').strip()
+    if not text:
+        return False
+    invalid_markers = (
+        'Loi AI [',
+        'RESOURCE_EXHAUSTED',
+        'He thong tam thoi gap loi',
+        'Khong co phan hoi tu AI',
+        'AI tam thoi gap loi',
+        'AI tạm thời gặp lỗi',
+        'AI hien tai khong tra ve noi dung',
+        'AI hiện tại không trả về nội dung',
+        'Xin lỗi, tôi gặp sự cố khi kết nối AI',
+        'Dịch vụ AI đang bị giới hạn tần suất',
+    )
+    return not any(marker in text for marker in invalid_markers)
+
 _GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
 
-# AI is considered available when we have a real key from .env.
-AI_AVAILABLE = bool(GEMINI_ENABLED and GEMINI_API_KEY and GEMINI_API_KEY != 'dummy')
+# AI is considered available when we have Ollama/Qwen or Gemini available.
+OLLAMA_READY = bool(OLLAMA_ENABLED and OpenAI is not None)
+AI_AVAILABLE = bool(OLLAMA_READY or (GEMINI_ENABLED and GEMINI_API_KEY and GEMINI_API_KEY != 'dummy'))
+
+_OLLAMA_CLIENT = None
 
 
 # ============================================================================
@@ -93,10 +126,240 @@ def _extract_json_object(text):
         return None
 
 
+def _normalize_ascii_text(value):
+    text = str(value or '').strip().lower()
+    if not text:
+        return ''
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _strip_markdown_fences(text):
+    raw = str(text or '').strip()
+    if raw.startswith('```'):
+        lines = raw.splitlines()
+        if lines and lines[0].startswith('```'):
+            lines = lines[1:]
+        if lines and lines[-1].startswith('```'):
+            lines = lines[:-1]
+        raw = '\n'.join(lines).strip()
+    return raw
+
+
+def _cleanup_local_llm_output(text):
+    raw = _strip_markdown_fences(text)
+    if not raw:
+        return ''
+
+    quote_match = re.search(r'"([^"\n]{20,})"', raw, flags=re.DOTALL)
+    if quote_match:
+        raw = quote_match.group(1).strip()
+
+    cleaned_lines = []
+    skip_prefixes = (
+        'day la',
+        'duoi day la',
+        'tra loi nhu sau',
+        'giai thich',
+        'phan loai',
+        'toi co the tra loi',
+        'nguyen van can',
+    )
+    for line in raw.splitlines():
+        stripped = line.strip().strip('"').strip("'").strip()
+        if not stripped:
+            if cleaned_lines:
+                cleaned_lines.append('')
+            continue
+        normalized = _normalize_ascii_text(stripped)
+        if any(marker in normalized for marker in ('goi y nhu sau', 'tra loi nhu sau', 'tom tat cuoc hoi thoai nay')):
+            suffix = stripped.split(':', 1)[1].strip() if ':' in stripped else ''
+            if suffix:
+                cleaned_lines.append(suffix)
+            continue
+        if any(normalized.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        if normalized in {'json', '```'}:
+            continue
+        cleaned_lines.append(stripped)
+
+    cleaned = '\n'.join(cleaned_lines).strip()
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    cleaned = re.sub(
+        r'(?i)\b(duoi day la|day la|toi co the (tra loi|goi y)( cho ban)?|tra loi nhu sau|tom tat cuoc hoi thoai nay)\b\s*:?',
+        '',
+        cleaned,
+    )
+    cleaned = re.sub(r'(?i)\bnguyen van can\b', '', cleaned)
+    cleaned = re.sub(r'^[\s,.:;-]+', '', cleaned)
+    return cleaned.strip(' "\'')
+
+
+def _get_ollama_client():
+    """Get or create OpenAI client connected to Ollama."""
+    global _OLLAMA_CLIENT
+    if not OLLAMA_READY:
+        raise RuntimeError('Ollama không khả dụng hoặc OpenAI package chưa được cài đặt')
+    if _OLLAMA_CLIENT is None:
+        _OLLAMA_CLIENT = OpenAI(
+            base_url=OLLAMA_BASE_URL.rstrip('/'),
+            api_key=OLLAMA_API_KEY,
+        )
+    return _OLLAMA_CLIENT
+
+
+def _ollama_qwen_generate_text(prompt, system_instruction=None, max_output_tokens=2048):
+    """Call Qwen2.5:7b via Ollama using OpenAI-compatible API."""
+    client = _get_ollama_client()
+    messages = []
+    if system_instruction:
+        messages.append({
+            'role': 'system',
+            'content': str(system_instruction).strip(),
+        })
+    messages.append({
+        'role': 'user',
+        'content': str(prompt),
+    })
+    
+    response = client.chat.completions.create(
+        model=OLLAMA_MODEL,
+        messages=messages,
+        max_tokens=int(max_output_tokens),
+        temperature=0.0,
+    )
+    
+    result = response.choices[0].message.content if response.choices else ''
+    return result.strip() if result else 'Không có phản hồi từ Qwen'
+
+
+def _local_llm_generate_text(prompt, system_instruction=None, max_output_tokens=2048):
+    """Generate text with local Ollama/Qwen only. Return empty string on failure."""
+    if not OLLAMA_READY:
+        return ''
+    try:
+        return _cleanup_local_llm_output(_ollama_qwen_generate_text(
+            prompt,
+            system_instruction=system_instruction,
+            max_output_tokens=max_output_tokens,
+        ))
+    except Exception as exc:
+        logger.exception('Local LLM generation failed: %s', exc)
+        return ''
+
+
+def classify_intent_with_local_llm(user_text):
+    """Classify intent with local LLM first. Return dict or None."""
+    text = (user_text or '').strip()
+    if not text:
+        return None
+
+    prompt = (
+        'Phan loai y dinh nguoi dung thanh dung 1 nhan trong danh sach sau: '
+        'greeting, recommendation, nutrition, meal_plan, recipe, shopping, ingredient, general.\n'
+        'Chi duoc tra ve DUNG 1 JSON object, khong markdown, khong giai thich, khong text bo sung.\n'
+        'Mau bat buoc: {"intent":"...", "confidence":0.0, "reason":"..."}\n'
+        'reason phai viet bang tieng Viet, rat ngan gon.\n'
+        f'Noi dung nguoi dung: {text}'
+    )
+    raw = _ollama_qwen_generate_text(
+        prompt,
+        system_instruction=(
+            'Ban la bo phan phan loai intent. '
+            'Chi tra ve JSON hop le. Khong viet them bat ky cau nao khac.'
+        ),
+        max_output_tokens=256,
+    )
+    parsed = _extract_json_object(raw)
+    if not parsed:
+        return None
+
+    intent = str(parsed.get('intent') or '').strip()
+    confidence = parsed.get('confidence', 0.0)
+    try:
+        confidence = float(confidence)
+    except Exception:
+        confidence = 0.0
+    if not intent:
+        return None
+    return {
+        'intent': intent,
+        'confidence': max(0.0, min(confidence, 1.0)),
+        'reason': _cleanup_local_llm_output(parsed.get('reason') or ''),
+        'raw': raw,
+    }
+
+
+def summarize_chat_with_local_llm(history_lines, max_output_tokens=256):
+    """Summarize chat history with local LLM only."""
+    lines = [str(line).strip() for line in (history_lines or []) if str(line).strip()]
+    if not lines:
+        return ''
+
+    prompt = (
+        'Hay tom tat cuoc hoi thoai nay trong 3-5 dong ngan gon.\n'
+        'Chi tap trung vao y chinh, muc tieu cua nguoi dung, va ket qua da tra loi.\n'
+        'Khong viet mo dau kieu "Duoi day la tom tat".\n'
+        + '\n'.join(lines)
+    )
+    return _local_llm_generate_text(
+        prompt,
+        system_instruction='Ban la he thong tom tat hoi thoai.',
+        max_output_tokens=max_output_tokens,
+    )
+
+
+def generate_basic_chat_reply_with_local_llm(user_text, context_text='', max_output_tokens=512):
+    """Generate a basic answer with local LLM only."""
+    text = (user_text or '').strip()
+    if not text:
+        return ''
+
+    extra_context = (context_text or '').strip()
+    prompt_parts = [
+        'Tra loi truc tiep cho cau hoi hien tai cua nguoi dung.',
+        f'Cau hoi: {text}',
+    ]
+    if extra_context:
+        prompt_parts.extend([
+            'Boi canh noi bo de tham khao:',
+            extra_context,
+        ])
+    prompt_parts.extend([
+        'Yeu cau bat buoc:',
+        '- Chi tra loi cho cau hoi hien tai.',
+        '- Neu nguoi dung dang can goi y, dua ra 2-4 goi y cu the va ly do ngan gon.',
+        '- Neu khong du du lieu thi noi ro phan thieu.',
+        '- Khong viet cac cau mo dau nhu "Day la", "Tra loi nhu sau", "Nguyen van can".',
+        '- Khong giai thich cach ban suy nghi, khong dua markdown code block.',
+        'Tra loi cuoi cung:',
+    ])
+    prompt = '\n'.join(prompt_parts).strip()
+    return _local_llm_generate_text(
+        prompt,
+        system_instruction=(
+            'Ban la tro ly AI noi bo cho ung dung am thuc. '
+            'Tra loi bang tieng Viet, ngan gon, ro rang, dung trong tam. '
+            'Tuyet doi khong tao loi dan nhap, khong tu gioi thieu, khong viet meta-commentary. '
+            'Neu co du lieu noi bo trong prompt thi uu tien du lieu do.'
+        ),
+        max_output_tokens=max_output_tokens,
+    )
+
+
 def _gemini_generate_text(prompt, system_instruction=None, max_output_tokens=2048):
-    """Gá»i Gemini vÃ  tráº£ text; raise exception Ä‘á»ƒ caller tá»± quyáº¿t Ä‘á»‹nh fallback."""
+    """Gá»i Gemini hoặc local Qwen vÃ  tráº£ text; raise exception Ä‘á»ƒ caller tá»± quyáº¿t Ä‘á»‹nh fallback."""
     if not AI_AVAILABLE:
         raise RuntimeError('AI client khong san sang')
+
+    if OLLAMA_READY:
+        try:
+            return _ollama_qwen_generate_text(prompt, system_instruction=system_instruction, max_output_tokens=max_output_tokens)
+        except Exception as exc:
+            logger.exception('Ollama/Qwen generation failed, falling back to Gemini if available: %s', exc)
+            if not (GEMINI_ENABLED and GEMINI_API_KEY and GEMINI_API_KEY != 'dummy'):
+                raise
 
     endpoint_base = (GEMINI_BASE_URL or _GEMINI_DEFAULT_BASE_URL).rstrip('/')
     endpoint = f'{endpoint_base}/models/{GEMINI_MODEL}:generateContent'
@@ -142,13 +405,13 @@ def _gemini_generate_text(prompt, system_instruction=None, max_output_tokens=204
                 detail = (getattr(response, 'text', '') or '').strip()
         if status_code == 429:
             raise RuntimeError(
-                f'Gemini API rate limited (HTTP 429). {detail or "Too Many Requests"}'
+                f'Dịch vụ AI bị giới hạn lưu lượng (HTTP 429). {detail or "Too Many Requests"}'
             ) from exc
         raise RuntimeError(
-            f'Gemini API request failed (HTTP {status_code or "unknown"}). {detail or str(exc)}'
+            f'Yêu cầu dịch vụ AI thất bại (HTTP {status_code or "unknown"}). {detail or str(exc)}'
         ) from exc
     except requests.RequestException as exc:
-        raise RuntimeError(f'Gemini network error: {exc}') from exc
+        raise RuntimeError(f'Lỗi mạng khi gọi dịch vụ AI: {exc}') from exc
 
     text = ''
     candidates = response_data.get('candidates') or []
@@ -160,7 +423,7 @@ def _gemini_generate_text(prompt, system_instruction=None, max_output_tokens=204
     if not text:
         text = str(response_data.get('text') or '').strip()
     if not text:
-        raise RuntimeError('Gemini khong tra ve noi dung')
+        raise RuntimeError('Dịch vụ AI không trả về nội dung')
     return text
 
 
@@ -836,7 +1099,17 @@ def call_gemini_with_debug(chat_session, system_context):
             prefix = 'Tro ly' if msg.role == 'assistant' else 'Nguoi dung'
             history_lines.append(f'{prefix}: {msg.content}')
 
-        prompt = '\n'.join(history_lines) or 'Khong co noi dung hoi truoc do.'
+        recent_history = '\n'.join(history_lines[-10:])
+        current_question = ''
+        for msg in reversed(list(all_messages)):
+            if getattr(msg, 'role', '') == 'user' and (getattr(msg, 'content', '') or '').strip():
+                current_question = (msg.content or '').strip()
+                break
+
+        prompt = (
+            f'{recent_history}\n'
+            f'Cau hoi hien tai cua nguoi dung: {current_question or "Khong co noi dung hoi truoc do."}'
+        ).strip()
         response_text = _gemini_generate_text(
             prompt,
             system_instruction=system_context,
@@ -1258,40 +1531,63 @@ Ví dụ luồng hoạt động:
 # ============================================================================
 
 def get_or_create_chat_response_from_cache(account, user_query, source_intent=None):
-    """Get cached chat response for similar queries."""
+    """
+    Get cached chat response for similar queries with intent-aware matching.
+    
+    Chiến lược:
+    1. Tìm cache trong nhóm intent tương tự (nếu có source_intent)
+    2. Tính Jaccard similarity >= 0.85 (tăng từ 0.75 để đảm bảo chính xác)
+    3. Kiểm tra các từ khóa quan trọng (protein, calo, giảm cân, ...)
+    4. Fallback sang general cache nếu không tìm thấy intent-specific
+    5. Trả về response với similarity metadata
+    """
     try:
         from app.services.chat_text_service import tokenize_chat_text
         from apps.chat.models import ChatResponseCache
+        from app.services.similarity_service import compute_smart_similarity
         
         normalized_query = " ".join(tokenize_chat_text(user_query))
         if not normalized_query:
             return None
         
-        cached_entries = ChatResponseCache.objects.filter(
-            normalized_query__icontains=normalized_query
-        ).order_by("-created_at")[:10]
-        
-        if not cached_entries:
-            return None
-        
-        query_tokens = set(tokenize_chat_text(user_query))
         best_match = None
         best_similarity = 0.0
         
-        for entry in cached_entries:
-            entry_tokens = set(tokenize_chat_text(entry.normalized_query))
-            if not query_tokens and not entry_tokens:
-                continue
-            
-            intersection = len(query_tokens & entry_tokens)
-            union = len(query_tokens | entry_tokens)
-            similarity = intersection / union if union > 0 else 0.0
+        # Lấy các cache gần đây (giới hạn số lượng để đảm bảo hiệu năng)
+        # Ưu tiên các cache có cùng intent trước
+        entries = []
+        if source_intent:
+            entries = list(ChatResponseCache.objects.filter(intent_name=source_intent).order_by("-created_at")[:30])
+        
+        # Nếu chưa đủ 30 entries, lấy thêm từ general cache
+        if len(entries) < 30:
+            general_limit = 30 - len(entries)
+            general_entries = ChatResponseCache.objects.exclude(intent_name=source_intent) if source_intent else ChatResponseCache.objects.all()
+            entries.extend(list(general_entries.order_by("-created_at")[:general_limit]))
+
+        for entry in entries:
+            # Sử dụng thuật toán thông minh hơn thay vì chỉ Jaccard cơ bản
+            similarity = compute_smart_similarity(
+                user_query, 
+                entry.original_query, 
+                source_intent_a=source_intent, 
+                source_intent_b=entry.intent_name
+            )
             
             if similarity > best_similarity:
                 best_similarity = similarity
                 best_match = entry
         
-        if best_match and best_similarity >= 0.70:
+        # Ngưỡng thông minh: 0.82 (cao hơn 0.75 cũ nhưng linh hoạt hơn do thuật toán mới)
+        if best_match and best_similarity >= 0.90:
+            requested_intent = (source_intent or '').strip().lower()
+            cached_intent = (best_match.intent_name or '').strip().lower()
+            if requested_intent and cached_intent and requested_intent != cached_intent:
+                return None
+            if not _is_cacheable_chat_response(best_match.response):
+                best_match.delete()
+                return None
+
             best_match.usage_count += 1
             best_match.save(update_fields=["usage_count"])
             
@@ -1299,6 +1595,7 @@ def get_or_create_chat_response_from_cache(account, user_query, source_intent=No
                 "response": best_match.response,
                 "similarity": best_similarity,
                 "cached_at": best_match.created_at,
+                "intent_name": best_match.intent_name,
             }
         
         return None
@@ -1307,10 +1604,19 @@ def get_or_create_chat_response_from_cache(account, user_query, source_intent=No
 
 
 def save_chat_response_to_cache(account, user_query, gemini_response, source_intent=None):
-    """Save Gemini response to ChatResponseCache for reuse on similar queries."""
+    """
+    Save Gemini response to ChatResponseCache for reuse on similar queries.
+    
+    Cải thiện:
+    - Lưu intent_name để cache được sắp xếp theo intent
+    - Hỗ trợ intent-aware matching khi retrieve
+    """
     try:
         from app.services.chat_text_service import tokenize_chat_text
         from apps.chat.models import ChatResponseCache
+
+        if not _is_cacheable_chat_response(gemini_response):
+            return None
         
         normalized_query = " ".join(tokenize_chat_text(user_query))
         if not normalized_query:
@@ -1321,6 +1627,7 @@ def save_chat_response_to_cache(account, user_query, gemini_response, source_int
             defaults={
                 "original_query": user_query,
                 "response": gemini_response,
+                "intent_name": source_intent,  # Lưu intent để grouping cache
                 "usage_count": 0,
             }
         )

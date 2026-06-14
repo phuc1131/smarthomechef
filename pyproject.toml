@@ -7,6 +7,7 @@ dependencies = [
     "dj-database-url>=3.1.2",
     "django>=5.2.13",
     "google-genai>=1.72.0",
+    "openai>=1.0.0",
     "psycopg2-binary>=2.9.11",
     "schedule>=1.2.2",
     "whitenoise>=6.12.0",

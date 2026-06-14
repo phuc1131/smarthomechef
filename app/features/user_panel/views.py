@@ -2,7 +2,11 @@ import calendar
 import json
 import logging
 import re
+import time
+import unicodedata
 from datetime import date, timedelta
+from typing import Optional
+from urllib.parse import urlparse
 from uuid import uuid4
 import uuid
 
@@ -16,19 +20,50 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from app.config import REQUIRE_AUTH
+from apps.core_models.models import AIRecommendation, SearchEvent
 
 # Import models từ các app tương ứng (đồng bộ với cấu trúc cơ sở dữ liệu mới)
 from apps.users.models import Account, UserProfile, UserPreferenceProfile
-from apps.nutrition.models import Food, NutritionLog, ShoppingItem, ShoppingList
+from apps.nutrition.models import Food, FoodIngredient, NutritionLog, ShoppingItem, ShoppingList, Recipe, Ingredient
 from apps.meal_plans.models import MealPlan
 from apps.chat.models import ChatMessage, ChatSession, MessageIntent, ChatResponseCache
+from apps.core_models.ai_learning_models import MealRecommendation, UserFeedbackFood, UserFeedbackRecommendation
+from apps.users.models import UserFeedback
 from app.services.ai_orchestrator_service import AIOrchestratorService
+from app.services.ai_quality_service import log_ai_request
+from app.services.ai_request_guard_service import (
+    analyze_user_request,
+    build_response_contract,
+    validate_response_against_request,
+)
+from app.services.chat_text_service import tokenize_chat_text
+from app.services.personalization_service import (
+    get_personalization_context,
+    hybrid_rank_food_candidates,
+    log_recommendation_bandit_event,
+    persist_recommendation_impressions,
+    rank_food_candidates,
+    score_food_for_user,
+)
 from app.services.external_apis import (
     AI_AVAILABLE,
+    generate_basic_chat_reply_with_local_llm,
     call_gemini_with_debug as _service_call_gemini_with_debug,
     get_spoonacular_last_error as _get_spoonacular_last_error,
 )
+from app.services.ingredient_price_service import (
+    BUDGET_MEAL_PLAN,
+    GENERAL_MEAL_PLAN,
+    INGREDIENT_COST_QUERY,
+    PRICE_QUERY,
+    RECIPE_COST_QUERY,
+    classify_food_price_intent,
+    handle_multi_ingredient_cost_query,
+    handle_recipe_cost_query,
+    handle_single_ingredient_price_query,
+)
 from app.services.meal_plan_generator_service import MealPlanGeneratorService
+from app.services.grocery_list_service import generate_shopping_list_from_meal_plan
 from apps.users.views import (
     _set_auth_session,
     get_current_account,
@@ -66,6 +101,64 @@ def parse_int(value):
         return int(value) if value not in (None, '') else None
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_query(text):
+    """Chuẩn hóa câu truy vấn để so sánh và tìm kiếm gần đúng."""
+    if not text:
+        return ''
+    normalized = ' '.join(tokenize_chat_text(text))
+    return normalized.strip()
+
+
+def _log_chat_search_event(account, user_text, response_text, clicked_food=None):
+    try:
+        AIOrchestratorService.log_search_event(
+            account,
+            user_text,
+            result_count=1 if response_text else 0,
+            clicked_food=clicked_food,
+        )
+    except Exception:
+        pass
+
+
+def _log_chat_ai_request(account, chat_session, user_text, intent_name, provider, latency_ms, **kwargs):
+    try:
+        log_ai_request(
+            account=account,
+            chat_session=chat_session,
+            query_text=user_text,
+            normalized_query=_normalize_query(user_text),
+            intent_name=intent_name,
+            provider=provider,
+            latency_ms=latency_ms,
+            **kwargs,
+        )
+    except Exception:
+        pass
+
+
+def _log_rejected_ai_response(account, chat_session, user_text, intent_name, provider, issues, metadata=None):
+    try:
+        log_ai_request(
+            account=account,
+            chat_session=chat_session,
+            query_text=user_text,
+            normalized_query=_normalize_query(user_text),
+            intent_name=intent_name,
+            provider=provider,
+            route_path='rejected',
+            decision='request_guard_rejected',
+            latency_ms=0,
+            response_ok=False,
+            metadata={
+                'issues': list(issues or []),
+                **(metadata or {}),
+            },
+        )
+    except Exception:
+        pass
 
 
 def require_auth(request):
@@ -133,34 +226,606 @@ def classify_intent(user_text):
     return AIOrchestratorService.classify_intent(user_text)
 
 
+def _is_greeting_message(user_text):
+    text = (user_text or '').strip().lower()
+    if not text:
+        return False
+    greeting_phrases = {
+        'chao', 'chào', 'hello', 'hi', 'hey', 'alo', 'xin chao', 'xin chào',
+        'chao ban', 'chào bạn', 'ad oi', 'ad ơi', 'bot oi', 'bot ơi',
+    }
+    return text in greeting_phrases
+
+
+def _build_greeting_response():
+    return (
+        'Xin chào! Mình là trợ lý Nội Trợ AI. '
+        'Mình có thể giúp bạn gợi ý món ăn, tư vấn dinh dưỡng hoặc lên thực đơn. '
+        'Bạn muốn mình hỗ trợ gì?'
+    )
+
+
+def _is_greeting_message_safe(user_text):
+    text = (user_text or '').strip().lower()
+    text = unicodedata.normalize('NFKD', text)
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    if not text:
+        return False
+    return text in {
+        'chao', 'xin chao', 'chao ban', 'hello', 'hi', 'hey', 'alo', 'ad oi', 'bot oi',
+    }
+
+
 def _append_health_feedback(response_text, account, user_text):
+    if not response_text:
+        return ""
     return response_text
 
 
-def _call_gemini_with_debug(profile_obj, chat_session, system_context):
-    return _service_call_gemini_with_debug(chat_session, system_context)
+def _format_local_candidates_response(candidates):
+    lines = []
+    for item in candidates[:5]:
+        food = item.get('food')
+        if not food:
+            continue
+        name = getattr(food, 'name', 'Món ăn')
+        reasons = item.get('reasons') or []
+        # Việt hóa lý do và loại bỏ thông tin kỹ thuật
+        clean_reasons = []
+        for r in reasons:
+            if 'query_sim' in r or 'score' in r:
+                continue
+            clean_reasons.append(r)
+        
+        reason_text = f' (phù hợp vì: {", ".join(clean_reasons)})' if clean_reasons else ''
+        lines.append(f'- {name}{reason_text}')
+
+    if not lines:
+        return ''
+
+    return (
+        'Mình đã tìm thấy một số món ăn phù hợp với yêu cầu của bạn: \n'
+        + '\n'.join(lines)
+        + '\nBạn có muốn mình hướng dẫn chi tiết cách nấu món nào không?'
+    )
 
 
-def _search_keyword_hardcoded(user_text, account):
+def _retrieve_rag_evidence(account, user_text, local_candidates=None):
+    evidence = {
+        'foods': local_candidates or [],
+        'recipes': [],
+        'ingredients': [],
+    }
+    query = (user_text or '').strip()
+    normalized_query = _normalize_query(query)
+    if not normalized_query:
+        return evidence
+
+    try:
+        recipes = Recipe.objects.filter(
+            Q(title__icontains=normalized_query)
+            | Q(summary__icontains=normalized_query)
+            | Q(instructions__icontains=normalized_query)
+        ).order_by('-created_at')[:3]
+        for recipe in recipes:
+            evidence['recipes'].append({
+                'title': getattr(recipe, 'title', ''),
+                'summary': getattr(recipe, 'summary', ''),
+            })
+    except Exception:
+        pass
+
+    try:
+        ingredients = Ingredient.objects.filter(name__icontains=normalized_query).order_by('name')[:3]
+        evidence['ingredients'] = [getattr(ingredient, 'name', '') for ingredient in ingredients if getattr(ingredient, 'name', None)]
+    except Exception:
+        pass
+
+    if not evidence['foods']:
+        try:
+            foods = Food.objects.filter(
+                Q(name__icontains=normalized_query)
+                | Q(category__name__icontains=normalized_query)
+                | Q(category_name__icontains=normalized_query)
+            ).order_by('name')[:5]
+            evidence['foods'] = [
+                {'food': food, 'score': 0.0, 'reasons': ['match query']}
+                for food in foods
+            ]
+        except Exception:
+            pass
+
+    return evidence
+
+
+def _build_gemini_system_context(account, user_text, intent_name=None, local_candidates=None, rag_evidence=None):
+    system_context = (
+        'Bạn là "Nội Trợ AI", trợ lý ẩm thực thông minh dành cho người Việt. '
+        'Hãy trả lời bằng tiếng Việt, thân thiện, ngắn gọn và hữu ích. '
+        'Ưu tiên gợi ý món ăn lành mạnh, phù hợp theo sở thích, mục tiêu sức khỏe, ngân sách và bệnh lý người dùng.\n'
+        'QUY TẮC QUAN TRỌNG:\n'
+        '1. Luôn trả lời đúng trọng tâm câu hỏi và yêu cầu của người dùng.\n'
+        '2. KHÔNG bao giờ hiển thị các thông số kỹ thuật như "query_sim", "score", "confidence" trong câu trả lời.\n'
+        '3. Nếu người dùng muốn lên thực đơn, hãy giải thích các món được chọn dựa trên hồ sơ của họ.\n'
+        '4. Luôn giữ thái độ lịch sự, chuyên nghiệp của một đầu bếp và chuyên gia dinh dưỡng.\n'
+    )
+
+    if intent_name:
+        system_context += f'Mục đích người dùng: {intent_name}.\n'
+
+    profile_text = _build_personalization_context_text(account)
+    if profile_text:
+        system_context += f'Thông tin người dùng: {profile_text}.\n'
+
+    evidence = rag_evidence or {}
+    foods = evidence.get('foods') or local_candidates or []
+    recipes = evidence.get('recipes') or []
+    ingredients = evidence.get('ingredients') or []
+
+    if foods:
+        candidate_lines = []
+        for item in foods[:5]:
+            food = item.get('food') if isinstance(item, dict) else item
+            if not food:
+                continue
+            name = getattr(food, 'name', 'Món ăn')
+            # Loại bỏ score và các lý do kỹ thuật khỏi system context để AI không bắt chước
+            reasons = item.get('reasons') or [] if isinstance(item, dict) else []
+            clean_reasons = [r for r in reasons if 'query_sim' not in r and 'score' not in r]
+            reason_text = f' ({", ".join(clean_reasons)})' if clean_reasons else ''
+            candidate_lines.append(f'* {name}{reason_text}')
+        system_context += (
+            'Dưới đây là các gợi ý từ cơ sở dữ liệu: \n'
+            + '\n'.join(candidate_lines)
+            + '\n'
+        )
+
+    if recipes:
+        recipe_lines = [f'* {recipe.get("title", "")}: {recipe.get("summary", "")}'.strip() for recipe in recipes]
+        system_context += (
+            'Các công thức liên quan từ dữ liệu nội bộ: \n'
+            + '\n'.join(recipe_lines)
+            + '\n'
+        )
+
+    if ingredients:
+        system_context += (
+            'Các nguyên liệu liên quan từ dữ liệu nội bộ: \n'
+            + '\n'.join(f'* {name}' for name in ingredients)
+            + '\n'
+        )
+
+    system_context += (
+        'Sử dụng các thông tin nội bộ trên làm bằng chứng khi cố gắng trả lời. '
+        'Hãy trả về phương án tốt nhất dựa trên dữ liệu và bối cảnh hiện có. '
+        'Nếu thiếu thông tin, hãy đưa ra lựa chọn hợp lý nhất thay vì hỏi thêm người dùng.\n'
+    )
+
+    system_context += f'Người dùng hỏi: "{user_text}"\n'
+    return system_context
+
+
+def _build_personalization_context_text(account):
+    context = get_personalization_context(account)
+    profile = context.get('profile')
+    preference_profile = context.get('preference_profile')
+    diseases = context.get('diseases') or []
+
+    if not profile:
+        return ''
+
+    parts = []
+    if getattr(profile, 'name', None):
+        parts.append(f'Người dùng {profile.name}')
+    if getattr(profile, 'age', None):
+        parts.append(f'{profile.age} tuổi')
+    if getattr(profile, 'gender', None):
+        parts.append(f'giới tính {profile.gender}')
+    if getattr(profile, 'weight', None):
+        parts.append(f'{profile.weight}kg')
+    if getattr(profile, 'height', None):
+        parts.append(f'{profile.height}cm')
+    if getattr(profile, 'health_goal', None):
+        parts.append(f'Mục tiêu: {profile.health_goal}')
+    if getattr(profile, 'medical_conditions', None):
+        parts.append(f'Bệnh lý: {profile.medical_conditions}')
+    if getattr(profile, 'dietary_preferences', None):
+        parts.append(f'Sở thích ăn: {profile.dietary_preferences}')
+    if getattr(profile, 'budget_limit', None):
+        parts.append(f'Ngân sách: {profile.budget_limit}')
+    if preference_profile and getattr(preference_profile, 'preferred_categories', None):
+        parts.append(f'Danh mục ưa thích: {preference_profile.preferred_categories}')
+    if preference_profile and getattr(preference_profile, 'avoided_keywords', None):
+        parts.append(f'Từ khóa tránh: {preference_profile.avoided_keywords}')
+    if diseases:
+        disease_names = ', '.join([str(getattr(item.disease, 'name', '') or '').strip() for item in diseases if getattr(item, 'disease', None)])
+        if disease_names:
+            parts.append(f'Bệnh lý đã ghi: {disease_names}')
+
+    return ' '.join(parts).strip()
+
+
+def _append_personalization_to_system_context(system_context, account):
+    personalization_text = _build_personalization_context_text(account)
+    if personalization_text:
+        return f"{system_context}\nThông tin cá nhân: {personalization_text}"
+    return system_context
+
+
+def _make_chat_response_system_context(system_context, user_text):
+    """Add a hard constraint so the model answers the latest user request only."""
+    return (
+        f"{system_context}\n"
+        "RANG BUOC BO SUNG:\n"
+        f'- Cau hoi hien tai cua nguoi dung: "{user_text}"\n'
+        "- Uu tien tuyet doi cau hoi hien tai, khong dua phan hoi dua tren chu de cu trong lich su.\n"
+        "- Neu cau hoi hien tai khong lien quan am thuc/dinh duong/thuc don/nguyen lieu, tra loi dung chu de do.\n"
+        "- Khong lan man, khong chuyen chu de.\n"
+    )
+
+
+def _response_matches_current_request(account, chat_session, user_text, response_text, intent_name, provider, analysis=None):
+    guard_result = validate_response_against_request(
+        user_text,
+        response_text,
+        analysis=analysis,
+        intent_name=intent_name,
+    )
+    if guard_result.get('ok'):
+        return True
+
+    _log_rejected_ai_response(
+        account,
+        chat_session,
+        user_text,
+        intent_name,
+        provider,
+        guard_result.get('issues') or [],
+        metadata={'request_analysis': guard_result.get('analysis') or {}},
+    )
+    return False
+
+
+def _cache_intent_matches(requested_intent, cached_intent):
+    requested = (requested_intent or '').strip().lower()
+    cached = (cached_intent or '').strip().lower()
+    return not requested or not cached or requested == cached
+
+
+def _get_food_recommendations_response(account, user_text):
+    foods = list(Food.objects.all().order_by('name')[:100])
+    if not foods:
+        return 'Mình chưa tìm thấy dữ liệu món ăn để gợi ý lúc này.'
+
+    ranked_foods = hybrid_rank_food_candidates(account, foods, limit=5, user_query=user_text)
+    ranked_foods = persist_recommendation_impressions(
+        account,
+        ranked_foods,
+        user_query=user_text,
+        source='user_panel',
+    )
+    if not ranked_foods:
+        return 'Mình chưa thể gợi ý món ăn lúc này.'
+
+    lines = []
+    for item in ranked_foods[:3]:
+        food = item['food']
+        try:
+            log_recommendation_bandit_event(
+                account,
+                food,
+                event_type='recommendation_shown',
+                score=float(item.get('score', 0.0)),
+                metadata={'source': 'user_panel', 'components': item.get('components', {})},
+            )
+        except Exception:
+            pass
+        name = getattr(food, 'name', 'Món ăn')
+        reasons = item.get('reasons') or []
+        # Lọc bỏ thông tin kỹ thuật
+        clean_reasons = [r for r in reasons if 'query_sim' not in r and 'score' not in r]
+        reason_text = '; '.join(clean_reasons) if clean_reasons else ''
+        lines.append(f'- {name}' + (f' ({reason_text})' if reason_text else ''))
+
+    return (
+        'Dưới đây là một số món ăn mình gợi ý cho bạn:\n' + '\n'.join(lines) +
+        '\nNếu bạn có yêu cầu cụ thể hơn như giảm cân, tăng cơ hay theo ngân sách, hãy cho mình biết nhé!'
+    )
+
+
+def _get_nutrition_summary_response(account):
+    if not account:
+        return 'Bạn cần đăng nhập để mình có thể xem và tóm tắt thông tin dinh dưỡng cá nhân.'
+
+    today_str = date.today().isoformat()
+    logs = NutritionLog.objects.filter(account=account, date=today_str).select_related('food')
+    if not logs.exists():
+        return (
+            'Hôm nay bạn chưa ghi nhật ký dinh dưỡng nào. Hãy thêm món ăn bạn đã ăn để mình tóm tắt chi tiết nhé. '
+            'Hoặc nếu bạn muốn, mình có thể giúp bạn lập một thực đơn mới phù hợp với mục tiêu sức khỏe của bạn!'
+        )
+
+    total_calories = 0.0
+    total_protein = 0.0
+    total_carbs = 0.0
+    total_fat = 0.0
+
+    for log in logs:
+        servings = float(log.servings or 0)
+        food = log.food
+        total_calories += float(getattr(food, 'calories', 0) or 0) * servings
+        total_protein += float(getattr(food, 'protein', 0) or 0) * servings
+        total_carbs += float(getattr(food, 'carbs', 0) or 0) * servings
+        total_fat += float(getattr(food, 'fat', 0) or 0) * servings
+
+    profile_obj = get_profile(account)
+    targets = _resolve_nutrition_targets(profile_obj)
+    calorie_status = 'đạt' if total_calories <= targets['calorie'] else 'vượt'
+
+    return (
+        f'Hôm nay bạn đã nạp {round(total_calories,1)} kcal, {round(total_protein,1)}g protein, '
+        f'{round(total_carbs,1)}g carbs và {round(total_fat,1)}g fat. '
+        f'Mục tiêu kcal của bạn là {targets["calorie"]} kcal, hiện tại bạn {calorie_status} mục tiêu.'
+    )
+
+
+def _get_recipe_response(user_text, account):
     query = (user_text or '').strip()
     if not query:
         return None
+
+    recipes = Recipe.objects.filter(
+        Q(title__icontains=query) | Q(summary__icontains=query) | Q(instructions__icontains=query)
+    ).order_by('-created_at')[:3]
+
+    if recipes:
+        lines = [f'- {recipe.title}' for recipe in recipes]
+        return (
+            'Mình tìm thấy các công thức phù hợp:\n' + '\n'.join(lines) +
+            '\nBạn có thể vào trang công thức để xem chi tiết hoặc hỏi thêm về cách nấu từng món.'
+        )
+    return None
+
+
+def _get_shopping_list_response(account):
+    if not account or getattr(account, 'role', '').lower() == 'guest':
+        return 'Bạn cần đăng nhập để mình có thể tạo danh sách mua sắm từ thực đơn của bạn.'
+
+    result = generate_shopping_list_from_meal_plan(
+        account,
+        date_start=date.today(),
+        date_end=date.today() + timedelta(days=6),
+    )
+
+    if not result.get('shopping_items'):
+        return (
+            'Mình chưa tìm thấy thực đơn phù hợp trong 7 ngày tới để tạo danh sách mua sắm. '
+            'Bạn có thể hỏi mình tạo thực đơn trước nhé.'
+        )
+
+    lines = []
+    for item in result['shopping_items'][:5]:
+        lines.append(f"- {item['ingredient_name']}: {item['total_quantity']} {item['unit']}")
+
+    return (
+        f'Mình đã tạo danh sách mua sắm từ {result.get("meal_plan_count", 0)} thực đơn:\n'
+        + '\n'.join(lines)
+        + '\nBạn có thể mở trang danh sách mua để xem chi tiết.'
+    )
+
+
+def _get_ingredient_lookup_response(user_text, account):
+    query = (user_text or '').strip()
+    if not query:
+        return None
+
+    ingredient = Ingredient.objects.filter(name__icontains=query).order_by('name').first()
+    if ingredient:
+        return f'Nguyên liệu {ingredient.name}: đây là thông tin sẵn có trong hệ thống.'
+
     food = Food.objects.filter(name__icontains=query).order_by('name').first()
     if food:
-        return f'Mình tìm thấy món {food.name}.'
+        calories = getattr(food, 'calories', 0) or 0
+        protein = getattr(food, 'protein', 0) or 0
+        carbs = getattr(food, 'carbs', 0) or 0
+        fat = getattr(food, 'fat', 0) or 0
+        return (
+            f'Thông tin {food.name}: {calories} kcal, {protein}g protein, {carbs}g carbs, {fat}g fat. '
+            'Nếu bạn muốn, mình có thể gợi ý món ăn hoặc công thức phù hợp với nguyên liệu này.'
+        )
+
     return None
+
+
+def _route_chat_intent(intent, user_text, account, chat_session):
+    if not intent:
+        return None
+    intent_name = (getattr(intent, 'name', '') or '').lower().strip()
+    if not intent_name:
+        return None
+
+    if intent_name == 'greeting':
+        return {'response': 'Xin chào! Mình là trợ lý Nội Trợ AI. Mình có thể giúp bạn gợi ý món ăn, xem dinh dưỡng hoặc lập thực đơn hàng ngày. Bạn cần mình giúp gì không?'}
+    if intent_name == 'meal_plan':
+        return _auto_create_meal_plan_from_chat(user_text, account, force=True)
+    if intent_name == 'recommendation':
+        return {'response': _get_food_recommendations_response(account, user_text)}
+    if intent_name == 'nutrition':
+        # Chỉ trả về tóm tắt nếu có từ khóa tóm tắt hoặc nhật ký
+        nutrition_keywords = ['tóm tắt', 'tom tat', 'nhật ký', 'nhat ky', 'đã ăn', 'da an', 'thống kê', 'thong ke']
+        if any(kw in user_text.lower() for kw in nutrition_keywords):
+            return {'response': _get_nutrition_summary_response(account)}
+        # Nếu không, hãy để AI trả lời (nutrition lookup)
+        return None
+    if intent_name == 'recipe':
+        recipe_text = _get_recipe_response(user_text, account)
+        if recipe_text:
+            return {'response': recipe_text}
+    if intent_name == 'shopping':
+        return {'response': _get_shopping_list_response(account)}
+    if intent_name == 'ingredient':
+        ingredient_text = _get_ingredient_lookup_response(user_text, account)
+        if ingredient_text:
+            return {'response': ingredient_text}
+
+    return None
+
+
+def _call_gemini_with_debug(account, chat_session, system_context, user_text=''):
+    system_context = _append_personalization_to_system_context(system_context, account)
+    system_context = _make_chat_response_system_context(system_context, user_text)
+    return _service_call_gemini_with_debug(chat_session, system_context)
+
+
+def _filter_and_rank_foods_by_personalization(account, foods, limit=3, user_text: Optional[str] = None):
+    """
+    Filter & rank foods based on user personalization profile.
+    
+    CẢI THIỆN:
+    - Tránh recommend foods trong avoided_keywords
+    - Score foods theo user preferences (calories, categories, budget, vv)
+    - Rank theo personalization scores
+    """
+    if not foods or not account:
+        return []
+    
+    try:
+        # Rank foods dùng personalization service (pass current user query for dynamic boosts)
+        ranked = rank_food_candidates(account, foods, limit=limit, user_query=user_text)
+        
+        # Filter out foods có scores quá thấp (< 0.35 = không phù hợp)
+        filtered = [item for item in ranked if item['score'] >= 0.35]
+        
+        return filtered if filtered else ranked[:limit]
+    except Exception:
+        # Fallback: trả về foods original nếu personalization fail
+        return [{'food': food, 'score': 0.5, 'reasons': []} for food in foods[:limit]]
+
+
+def _search_keyword_hardcoded(user_text, account):
+    """
+    Search foods từ query, với personalization filtering.
+    
+    CẢI THIỆN:
+    - Dùng personalization để filter & rank foods
+    - Tránh recommend avoided foods
+    - Show ranking reasons
+    """
+    query = (user_text or '').strip()
+    if not query:
+        return None
+
+    normalized_query = _normalize_query(query)
+    if not normalized_query:
+        return None
+
+    # Search foods từ DB
+    foods = Food.objects.filter(
+        Q(name__iexact=query)
+        | Q(name__iexact=normalized_query)
+        | Q(name__icontains=normalized_query)
+        | Q(category__name__iexact=normalized_query)
+        | Q(category__name__icontains=normalized_query)
+    ).order_by('name')[:10]  # Lấy top 10 để filter
+
+    if not foods:
+        # Fallback: semantic search over names and categories
+        from app.services.personalization_service import semantic_search_with_scores
+        scored = semantic_search_with_scores(query)
+        foods = [item['food'] for item in scored][:10]
+
+    if not foods:
+        return None
+    
+    # CẢI THIỆN: Filter & rank foods theo personalization
+    ranked_foods = _filter_and_rank_foods_by_personalization(account, foods, limit=3, user_text=query)
+    
+    if not ranked_foods:
+        return None
+    
+    # Trả về top-ranked food
+    top_food = ranked_foods[0]['food']
+    # Lọc bỏ thông tin kỹ thuật từ lý do
+    clean_reasons = [r for r in ranked_foods[0]['reasons'] if 'query_sim' not in r and 'score' not in r]
+    reasons_text = ', '.join(clean_reasons) if clean_reasons else ''
+    
+    if reasons_text:
+        return f'Mình đã tìm thấy món {top_food.name} rất phù hợp với bạn vì: {reasons_text}.'
+    else:
+        return f'Mình tìm thấy món {top_food.name} khá phù hợp với yêu cầu của bạn.'
 
 
 def _search_db_for_query(user_text, account):
     return _search_keyword_hardcoded(user_text, account)
 
 
-def _find_saved_chat_answer(user_text):
-    normalized = (user_text or '').strip().lower()
-    if not normalized:
+def _find_saved_chat_answer(user_text, source_intent=None, request_analysis=None):
+    if not user_text:
         return None
-    cached = ChatResponseCache.objects.filter(normalized_query=normalized).order_by('-created_at').first()
-    return cached.response if cached else None
+
+    if request_analysis and request_analysis.skip_cache:
+        return None
+
+    try:
+        from app.services.external_apis import get_or_create_chat_response_from_cache
+        from app.services.similarity_service import compute_smart_similarity
+
+        # 1. Ưu tiên sử dụng cache service với thuật toán similarity thông minh
+        cache_result = get_or_create_chat_response_from_cache(
+            None,
+            user_text,
+            source_intent=source_intent,
+        )
+        if cache_result and _cache_intent_matches(source_intent, cache_result.get('intent_name')):
+            return cache_result
+
+        # 2. Fallback: Duyệt trực tiếp qua các cache gần đây nếu cache service không tìm thấy (đề phòng)
+        recent_caches = ChatResponseCache.objects.all().order_by('-created_at')[:50]
+        best_cached = None
+        max_sim = 0.0
+
+        for cached in recent_caches:
+            sim = compute_smart_similarity(
+                user_text, 
+                cached.original_query, 
+                source_intent_a=source_intent, 
+                source_intent_b=cached.intent_name
+            )
+            if sim > max_sim:
+                max_sim = sim
+                best_cached = cached
+        
+        if best_cached and max_sim >= 0.90 and _cache_intent_matches(source_intent, best_cached.intent_name):
+            response_text = (best_cached.response or '').strip()
+            if not _is_invalid_chat_response(response_text):
+                return {
+                    'response': response_text,
+                    'intent_name': best_cached.intent_name,
+                    'similarity': max_sim
+                }
+    except Exception:
+        pass
+
+    return None
+
+
+def _is_invalid_chat_response(response_text):
+    text = (response_text or '').strip()
+    if not text:
+        return True
+    invalid_markers = (
+        'Loi AI [',
+        'RESOURCE_EXHAUSTED',
+        'He thong tam thoi gap loi',
+        'Khong co phan hoi tu AI',
+        'AI tam thoi gap loi',
+        'AI tạm thời gặp lỗi',
+        'AI hien tai khong tra ve noi dung',
+        'AI hiện tại không trả về nội dung',
+        'Xin lỗi, tôi gặp sự cố khi kết nối AI',
+        'Dịch vụ AI đang bị giới hạn tần suất',
+    )
+    return any(marker in text for marker in invalid_markers)
 
 
 def _backfill_chat_intents_from_history():
@@ -310,20 +975,43 @@ def _build_nutrition_suggestions(today_insights):
 
 
 def _build_ai_quota_fallback_response(account, user_text):
-    """Tạo phản hồi dự phòng khi AI provider hết quota hoặc tạm lỗi."""
+    """Tạo phản hồi dự phòng từ dữ liệu nội bộ khi AI không trả lời được."""
+    recommendations = []
+    if account:
+        recommendations = list(
+            AIRecommendation.objects.filter(account=account)
+            .select_related('food')
+            .order_by('-score', '-created_at')[:5]
+        )
+
+    if recommendations:
+        lines = []
+        for item in recommendations:
+            food_name = getattr(getattr(item, 'food', None), 'name', '') or 'Món gợi ý'
+            reason = (item.reason or '').strip()
+            if reason:
+                lines.append(f"- {food_name}: {reason}")
+            else:
+                lines.append(f"- {food_name}")
+        return (
+            'Mình chưa trả lời bằng AI ngay lúc này, nhưng đây là gợi ý từ dữ liệu nội bộ phù hợp hơn:\n'
+            f"{chr(10).join(lines)}\n"
+            'Nếu bạn muốn, hãy nhắn rõ mục tiêu như "giảm cân", "tăng cơ" hoặc "ăn nhẹ buổi tối" để mình lọc kỹ hơn.'
+        )
+
     foods = list(Food.objects.all().order_by('name')[:5])
     if not foods:
         return (
-            'AI đang quá tải nên chưa phản hồi ngay được. '
+            'Mình chưa trả lời được ngay lúc này. '
             'Bạn có thể thử lại sau ít phút hoặc nhập tên món cụ thể để mình tra cứu từ CSDL nội bộ.'
         )
 
     food_lines = '\n'.join(f"- {food.name}" for food in foods)
     return (
-        'AI đang quá tải (hết quota tạm thời), mình chuyển sang chế độ dữ liệu nội bộ.\n'
+        'Mình chưa trả lời bằng AI ngay lúc này, nên chuyển sang dữ liệu nội bộ.\n'
         'Bạn có thể chọn nhanh một trong các món sau:\n'
         f'{food_lines}\n'
-        'Hãy nhắn tên món bạn muốn để mình trả thông tin dinh dưỡng chi tiết.'
+        'Hãy nhắn tên món bạn muốn hoặc nêu mục tiêu như giảm cân, tăng cơ, ăn nhẹ để mình gợi ý sát hơn.'
     )
 
 
@@ -392,13 +1080,9 @@ def _is_meal_plan_update_request(user_text):
     ])
 
 
-def _auto_create_meal_plan_from_chat(user_text, account):
-    """Tự tạo thực đơn từ câu chat nếu người dùng có nhắc tới kế hoạch ăn."""
-    text = (user_text or '').lower()
-    is_plan_request = any(k in text for k in [
-        'thuc don', 'thực đơn', 'meal plan', 'menu', 'len thuc don', 'lập thực đơn', 'lap thuc don',
-    ])
-    if not is_plan_request:
+def _auto_create_meal_plan_from_chat(user_text, account, force=False):
+    """Tự tạo thực đơn từ chat khi intent đã được phân loại là meal_plan."""
+    if not force:
         return None
 
     role = (getattr(account, 'role', '') or '').strip().lower()
@@ -439,6 +1123,113 @@ def _auto_create_meal_plan_from_chat(user_text, account):
         'plan_dates': plan_dates,
         'message': result.get('message') or 'Đã tạo thực đơn và lưu vào trang Thực đơn.',
     }
+
+
+def _format_meal_plan_result_for_chat(result):
+    budget_context = result.get('budget_context') or {}
+    shopping_summary = result.get('shopping_summary') or {}
+    total_cost = result.get('total_estimated_cost')
+    budget_remaining = result.get('budget_remaining')
+    request_type = result.get('request_type')
+
+    lines = []
+    if request_type == 'budget' and budget_context.get('has_budget'):
+        total_budget = budget_context.get('total_budget')
+        daily_budget = budget_context.get('daily_budget')
+        lines.append(f'Mình đã tạo thực đơn theo ngân sách cho {result.get("plan_days", 1)} ngày.')
+        if total_budget is not None:
+            lines.append(f'Ngân sách tổng: {float(total_budget):,.0f}đ.')
+        if daily_budget is not None:
+            lines.append(f'Ngân sách trung bình mỗi ngày: {float(daily_budget):,.0f}đ.')
+    else:
+        lines.append(f'Mình đã tạo thực đơn cho {result.get("plan_days", 1)} ngày dựa trên hồ sơ và mục tiêu sức khỏe của bạn.')
+
+    if total_cost is not None:
+        lines.append(f'Tổng chi phí dự kiến từ database nguyên liệu: {float(total_cost):,.0f}đ.')
+    if budget_remaining is not None:
+        if budget_remaining >= 0:
+            lines.append(f'Ngân sách còn lại: {float(budget_remaining):,.0f}đ.')
+        else:
+            lines.append(f'Đang vượt ngân sách khoảng {abs(float(budget_remaining)):,.0f}đ.')
+
+    shopping_items = shopping_summary.get('shopping_items') or []
+    if shopping_items:
+        lines.append('Một số nguyên liệu chính cần mua:')
+        for item in shopping_items[:5]:
+            lines.append(f"- {item['ingredient_name']}: {item['total_quantity']} {item['unit']}")
+
+    notes = result.get('budget_filter_notes') or []
+    if notes:
+        lines.append('Lưu ý dữ liệu:')
+        for note in notes[:3]:
+            lines.append(f'- {note}')
+
+    lines.append('Thực đơn đã được lưu tại trang Thực đơn: /thuc-don/.')
+    return '\n'.join(lines)
+
+
+def _handle_database_first_chat_query(account, user_text):
+    try:
+        intent_name = classify_food_price_intent(user_text, account=account)
+
+        if intent_name == PRICE_QUERY:
+            return handle_single_ingredient_price_query(user_text)
+
+        if intent_name == INGREDIENT_COST_QUERY:
+            return handle_multi_ingredient_cost_query(user_text)
+
+        if intent_name == RECIPE_COST_QUERY:
+            return handle_recipe_cost_query(user_text)
+
+        if intent_name in {BUDGET_MEAL_PLAN, GENERAL_MEAL_PLAN}:
+            role = (getattr(account, 'role', '') or '').strip().lower()
+            if not account or role == 'guest':
+                return {
+                    'success': False,
+                    'intent': intent_name,
+                    'response': 'Bạn cần đăng nhập để mình có thể tạo và lưu thực đơn theo hồ sơ cá nhân.',
+                }
+
+            result = MealPlanGeneratorService.generate_meal_plan(
+                account=account,
+                request_text=user_text,
+                target_date=_resolve_plan_start_date(user_text),
+            )
+            if not result.get('success'):
+                return {
+                    'success': False,
+                    'intent': intent_name,
+                    'response': result.get('message') or 'Không thể tạo thực đơn lúc này.',
+                    'meal_plan_created': False,
+                }
+
+            plan_dates = result.get('plan_dates') or []
+            meal_plan_url = '/thuc-don/'
+            if plan_dates:
+                try:
+                    first_plan_date = date.fromisoformat(str(plan_dates[0]))
+                    meal_plan_url = f'/thuc-don/?year={first_plan_date.year}&month={first_plan_date.month}'
+                except Exception:
+                    pass
+
+            return {
+                'success': True,
+                'intent': intent_name,
+                'response': _format_meal_plan_result_for_chat(result),
+                'meal_plan_created': True,
+                'meal_plan_url': meal_plan_url,
+            }
+
+    except Exception:
+        logger.exception('database_first_chat_query failed')
+        normalized_text = (user_text or '').lower()
+        if any(keyword in normalized_text for keyword in ['gia', 'chi phi', 'bao nhieu', 'price', 'cost']):
+            return {
+                'success': False,
+                'intent': PRICE_QUERY,
+                'response': 'Du lieu gia trong he thong hien chua san sang day du de tra loi chinh xac cau hoi nay.',
+            }
+    return None
 
 
 def dashboard(request):
@@ -528,9 +1319,23 @@ def dashboard(request):
         else:
             break
 
-    foods = list(Food.objects.all())
+    # CẢI THIỆN: Rank foods theo personalization thay vì random
     import random
-    food_recommendations = random.sample(foods, min(4, len(foods))) if foods else []
+    all_foods = list(Food.objects.all())
+    
+    if all_foods and account:
+        try:
+            # Rank foods dùng personalization service
+            ranked_foods = rank_food_candidates(account, all_foods, limit=20)
+            # Filter foods có score >= 0.35 (phù hợp)
+            good_foods = [item['food'] for item in ranked_foods if item['score'] >= 0.35]
+            food_recommendations = good_foods[:4] if good_foods else [item['food'] for item in ranked_foods[:4]]
+        except Exception:
+            # Fallback: random recommendation nếu personalization fail
+            food_recommendations = random.sample(all_foods, min(4, len(all_foods)))
+    else:
+        # Fallback: random recommendation nếu không có account
+        food_recommendations = random.sample(all_foods, min(4, len(all_foods))) if all_foods else []
 
     tracking_rows = []
     for log in tracking_logs:
@@ -624,6 +1429,8 @@ def chat_page(request):
 @require_POST
 def chat_send(request):
     """Xử lý gửi tin nhắn, ghi log, phân loại intent và trả phản hồi cho chatbot."""
+    response_text = None
+    started_at = time.perf_counter()
     try:
         data = json.loads(request.body)
         user_text = data.get('message', '').strip()
@@ -637,107 +1444,326 @@ def chat_send(request):
         chat_session = get_chat_session(account)
         user_msg = ChatMessage.objects.create(session=chat_session, role='user', content=user_text)
 
-        intent, confidence = classify_intent(user_text)
-        if intent:
-            MessageIntent.objects.create(message=user_msg, intent=intent, confidence=confidence)
-
-        auto_plan_result = _auto_create_meal_plan_from_chat(user_text, account)
-        if auto_plan_result:
-            response_text = auto_plan_result.get('message', '')
-            if auto_plan_result.get('meal_plan_created'):
-                response_text = _append_health_feedback(response_text, account, user_text)
+        if _is_greeting_message_safe(user_text):
+            response_text = _build_greeting_response()
             msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
-            response_payload = {'role': msg.role, 'content': msg.content}
-            if auto_plan_result.get('meal_plan_created'):
-                response_payload['meal_plan_created'] = True
-                response_payload['meal_plan_url'] = auto_plan_result.get('meal_plan_url', '/thuc-don/')
-            return JsonResponse(response_payload)
-
-        hardcoded_result = _search_keyword_hardcoded(user_text, account)
-        if hardcoded_result:
-            response_text = _append_health_feedback(hardcoded_result, account, user_text)
-            msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+            _log_chat_search_event(account, user_text, response_text)
+            _log_chat_ai_request(
+                account,
+                chat_session,
+                user_text,
+                'greeting',
+                'local_rule',
+                int((time.perf_counter() - started_at) * 1000),
+                route_path='local',
+                decision='greeting_fast_path',
+                response_ok=True,
+            )
             return JsonResponse({'role': msg.role, 'content': msg.content})
 
-        db_result = _search_db_for_query(user_text, account)
-        if db_result:
-            response_text = db_result
-        else:
-            saved_chat_result = _find_saved_chat_answer(user_text)
-            invalid_saved_markers = (
-                'Loi AI [',
-                'RESOURCE_EXHAUSTED',
-                'He thong tam thoi gap loi',
-                'Khong co phan hoi tu AI',
+        db_first_response = _handle_database_first_chat_query(account, user_text)
+        if db_first_response and db_first_response.get('response'):
+            response_text = _append_health_feedback(db_first_response['response'], account, user_text)
+            msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+            _log_chat_search_event(account, user_text, response_text)
+            _log_chat_ai_request(
+                account,
+                chat_session,
+                user_text,
+                db_first_response.get('intent', ''),
+                'database',
+                int((time.perf_counter() - started_at) * 1000),
+                route_path='database_first',
+                decision='database_first_flow',
+                response_ok=bool(db_first_response.get('success')),
+                metadata={'meal_plan_created': bool(db_first_response.get('meal_plan_created'))},
             )
-            if saved_chat_result and not any(marker in saved_chat_result for marker in invalid_saved_markers):
-                response_text = saved_chat_result
-            elif not AI_AVAILABLE:
-                response_text = 'Du lieu khong khop. AI chua kich hoat.'
-            else:
-                # BƯỚC 1: Check ChatResponseCache trước khi gọi Gemini
-                from app.services.external_apis import get_or_create_chat_response_from_cache, save_chat_response_to_cache
-                
-                cache_result = get_or_create_chat_response_from_cache(account, user_text, source_intent=intent.name if intent else None)
-                if cache_result:
-                    response_text = cache_result['response']
-                else:
-                    # Không tìm thấy cache, gọi Gemini API
-                    profile_obj = get_profile(account)
-                    system_context = (
-                        'Ban la "Noi Tro AI", tro ly noi tro thong minh nguoi Viet. '
-                        'Ban giup goi y mon an, tu van dinh duong va len thuc don. '
-                        'Hay tra loi bang tieng Viet, than thien va huu ich. '
-                        'Uu tien cac mon an Viet Nam truyen thong va lanh manh.\n'
-                    )
-                    if profile_obj:
-                        system_context += (
-                            f'Nguoi dung: {profile_obj.name}, '
-                            f'tuoi {profile_obj.age or "?"}, '
-                            f'nang {profile_obj.weight or "?"}kg, '
-                            f'muc tieu suc khoe: {profile_obj.activity_level or "chua cung cap"}.'
-                        )
+            payload = {'role': msg.role, 'content': msg.content}
+            if db_first_response.get('meal_plan_created'):
+                payload['meal_plan_created'] = True
+                payload['meal_plan_url'] = db_first_response.get('meal_plan_url', '/thuc-don/')
+            return JsonResponse(payload)
 
-                    ai_text, ai_err = _call_gemini_with_debug(profile_obj, chat_session, system_context)
-                    if ai_err:
-                        err_code = ai_err.get('error', 'UNKNOWN')
-                        err_msg = ai_err.get('msg', '')
-                        if '429' in err_msg or 'RESOURCE_EXHAUSTED' in err_msg or err_code == 'RESOURCE_EXHAUSTED':
-                            response_text = _build_ai_quota_fallback_response(account, user_text)
-                        else:
-                            response_text = 'AI tam thoi gap loi. Ban thu lai sau it phut hoac nhap ten mon cu the de minh tra CSDL noi bo.'
-                    else:
-                        response_text = (ai_text or '').strip()
-                        if (
-                            '429' in response_text
-                            or 'RESOURCE_EXHAUSTED' in response_text
-                            or 'exceeded your current quota' in response_text.lower()
-                        ):
-                            response_text = _build_ai_quota_fallback_response(account, user_text)
-                        elif not response_text:
-                            response_text = 'AI hien tai khong tra ve noi dung. Vui long thu lai sau it phut.'
-                    
-                    # BƯỚC 2: Cache successful response nếu không phải lỗi
-                    if not any(marker in response_text for marker in invalid_saved_markers):
-                        try:
-                            save_chat_response_to_cache(
-                                account, 
-                                user_text, 
-                                response_text, 
-                                source_intent=intent.name if intent else None
-                            )
-                        except Exception:
-                            pass  # Cache save failed, but continue with response
+        intent, confidence = classify_intent(user_text)
+        intent_name = getattr(intent, 'name', None) if intent else ''
+        request_analysis = analyze_user_request(user_text, intent_name=intent_name)
+        if intent:
+            MessageIntent.objects.create(message=user_msg, intent=intent, confidence=confidence)
+        if chat_session:
+            chat_session.current_intent_id = getattr(intent, 'id', None) if intent else None
+            chat_session.save(update_fields=['current_intent_id', 'updated_at'])
+
+        # 1. Xử lý theo ý định (Meal Plan, Greeting, ...)
+        intent_response = _route_chat_intent(intent, user_text, account, chat_session)
+        if intent_response:
+            response_text = intent_response.get('response', intent_response.get('message', ''))
+            if response_text and _response_matches_current_request(
+                account,
+                chat_session,
+                user_text,
+                response_text,
+                intent_name,
+                'local_rule',
+                analysis=request_analysis,
+            ):
+                response_text = _append_health_feedback(response_text, account, user_text)
+                msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                _log_chat_search_event(account, user_text, response_text)
+                _log_chat_ai_request(
+                    account,
+                    chat_session,
+                    user_text,
+                    intent_name,
+                    'local_rule',
+                    int((time.perf_counter() - started_at) * 1000),
+                    route_path='local',
+                    decision='intent_route',
+                    response_ok=True,
+                    metadata={'meal_plan_created': bool(intent_response.get('meal_plan_created'))},
+                )
+                payload = {'role': msg.role, 'content': msg.content}
+                if intent_response.get('meal_plan_created'):
+                    payload['meal_plan_created'] = True
+                    payload['meal_plan_url'] = intent_response.get('meal_plan_url', '/thuc-don/')
+                return JsonResponse(payload)
+
+        # 2. Kiểm tra bộ nhớ đệm (Cache)
+        saved_chat_result = _find_saved_chat_answer(
+            user_text,
+            source_intent=getattr(intent, 'name', None),
+            request_analysis=request_analysis,
+        )
+        if saved_chat_result:
+            if isinstance(saved_chat_result, dict):
+                response_text = saved_chat_result.get('response', '')
+            else:
+                response_text = saved_chat_result
+            
+            if response_text and _response_matches_current_request(
+                account,
+                chat_session,
+                user_text,
+                response_text,
+                intent_name,
+                'cache',
+                analysis=request_analysis,
+            ):
+                response_text = _append_health_feedback(response_text, account, user_text)
+                msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                _log_chat_search_event(account, user_text, response_text)
+                _log_chat_ai_request(
+                    account,
+                    chat_session,
+                    user_text,
+                    intent_name,
+                    'cache',
+                    int((time.perf_counter() - started_at) * 1000),
+                    route_path='cache',
+                    decision='cache_hit',
+                    cache_hit=True,
+                    response_ok=True,
+                )
+                return JsonResponse({'role': msg.role, 'content': msg.content})
+
+        # 3. Sử dụng AI (Gemini/Local RAG)
+        if AI_AVAILABLE:
+            from app.services.external_apis import save_chat_response_to_cache
+
+            orchestrator_choice = AIOrchestratorService.orchestrate(
+                user_text,
+                account,
+                chat_session,
+                call_gemini=False,
+                top_k=5,
+            )
+            candidate_items = orchestrator_choice.get('candidates') or []
+            rag_evidence = orchestrator_choice.get('rag_evidence')
+            route_path = orchestrator_choice.get('path')
+            ab_variant = orchestrator_choice.get('ab_variant')
+             
+            system_context = _build_gemini_system_context(
+                account,
+                user_text,
+                intent_name=getattr(intent, 'name', None),
+                local_candidates=candidate_items,
+                rag_evidence=rag_evidence,
+            )
+            system_context = f"{system_context}\nRANG BUOC TRA LOI:\n{build_response_contract(request_analysis)}\n"
+
+            if route_path == 'local' and ab_variant == 'local_rule' and candidate_items:
+                response_text = _format_local_candidates_response(candidate_items)
+                if _response_matches_current_request(
+                    account,
+                    chat_session,
+                    user_text,
+                    response_text,
+                    intent_name,
+                    'local_rule',
+                    analysis=request_analysis,
+                ):
+                    response_text = _append_health_feedback(response_text, account, user_text)
+                    msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                    _log_chat_search_event(account, user_text, response_text)
+                    _log_chat_ai_request(
+                        account,
+                        chat_session,
+                        user_text,
+                        intent_name,
+                        'local_rule',
+                        int((time.perf_counter() - started_at) * 1000),
+                        route_path=route_path,
+                        decision=orchestrator_choice.get('decision', 'ab_local_rule'),
+                        ab_variant=ab_variant or '',
+                        response_ok=True,
+                        metadata={'candidate_count': len(candidate_items)},
+                    )
+                    return JsonResponse({
+                        'role': msg.role,
+                        'content': msg.content,
+                        'ab_variant': ab_variant,
+                        'orchestrator_path': route_path,
+                    })
+
+            if route_path == 'local':
+                response_text = generate_basic_chat_reply_with_local_llm(user_text, context_text=system_context)
+                if (
+                    response_text
+                    and not _is_invalid_chat_response(response_text)
+                    and _response_matches_current_request(
+                        account,
+                        chat_session,
+                        user_text,
+                        response_text,
+                        intent_name,
+                        'local_llm',
+                        analysis=request_analysis,
+                    )
+                ):
+                    save_chat_response_to_cache(
+                        account,
+                        user_text,
+                        response_text,
+                        source_intent=getattr(intent, 'name', None),
+                    )
+                    response_text = _append_health_feedback(response_text, account, user_text)
+                    msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                    _log_chat_search_event(account, user_text, response_text)
+                    _log_chat_ai_request(
+                        account,
+                        chat_session,
+                        user_text,
+                        intent_name,
+                        'local_llm',
+                        int((time.perf_counter() - started_at) * 1000),
+                        route_path=route_path,
+                        decision=orchestrator_choice.get('decision', 'local_llm'),
+                        ab_variant=ab_variant or '',
+                        response_ok=True,
+                        metadata={'candidate_count': len(candidate_items)},
+                    )
+                    return JsonResponse({
+                        'role': msg.role,
+                        'content': msg.content,
+                        'ab_variant': ab_variant,
+                        'orchestrator_path': route_path,
+                    })
+
+            ai_text, ai_err = _call_gemini_with_debug(account, chat_session, system_context, user_text)
+            if not ai_err and ai_text:
+                response_text = ai_text.strip()
+                if (
+                    not _is_invalid_chat_response(response_text)
+                    and _response_matches_current_request(
+                        account,
+                        chat_session,
+                        user_text,
+                        response_text,
+                        intent_name,
+                        'gemini',
+                        analysis=request_analysis,
+                    )
+                ):
+                    save_chat_response_to_cache(
+                        account,
+                        user_text,
+                        response_text,
+                        source_intent=getattr(intent, 'name', None),
+                    )
+                    response_text = _append_health_feedback(response_text, account, user_text)
+                    msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                    _log_chat_search_event(account, user_text, response_text)
+                    _log_chat_ai_request(
+                        account,
+                        chat_session,
+                        user_text,
+                        intent_name,
+                        'gemini',
+                        int((time.perf_counter() - started_at) * 1000),
+                        route_path=route_path or 'gemini',
+                        decision=orchestrator_choice.get('decision', 'gemini'),
+                        ab_variant=ab_variant or '',
+                        response_ok=True,
+                        metadata={'candidate_count': len(candidate_items)},
+                    )
+                    return JsonResponse({
+                        'role': msg.role,
+                        'content': msg.content,
+                        'ab_variant': ab_variant,
+                        'orchestrator_path': route_path or 'gemini',
+                    })
+
+        # 4. Fallback: Keyword Hardcoded hoặc Database
+        hardcoded_result = _search_keyword_hardcoded(user_text, account)
+        if hardcoded_result:
+            response_text = hardcoded_result
+        else:
+            response_text = _build_ai_quota_fallback_response(account, user_text)
+
+        if not _response_matches_current_request(
+            account,
+            chat_session,
+            user_text,
+            response_text,
+            intent_name,
+            'fallback',
+            analysis=request_analysis,
+        ):
+            response_text = (
+                'Mình chưa có đủ dữ liệu để trả lời chính xác đúng yêu cầu này ngay lúc này. '
+                'Bạn hãy gửi lại thật ngắn theo đúng mục tiêu như: giá nguyên liệu, dinh dưỡng, công thức, thực đơn hoặc danh sách mua sắm.'
+            )
 
         response_text = _append_health_feedback(response_text, account, user_text)
-
         msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
-        build_user_preference_profile(account)
+        _log_chat_search_event(account, user_text, response_text)
+        _log_chat_ai_request(
+            account,
+            chat_session,
+            user_text,
+            intent_name,
+            'fallback',
+            int((time.perf_counter() - started_at) * 1000),
+            route_path='fallback',
+            decision='fallback_response',
+            response_ok=True,
+        )
         return JsonResponse({'role': msg.role, 'content': msg.content})
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Du lieu gui len khong hop le'}, status=400)
     except Exception:
         logger.exception('chat_send failed unexpectedly')
+        if 'account' in locals() and 'chat_session' in locals() and 'user_text' in locals():
+            _log_chat_ai_request(
+                account,
+                chat_session,
+                user_text,
+                locals().get('intent_name', ''),
+                'fallback',
+                int((time.perf_counter() - started_at) * 1000),
+                route_path='error',
+                decision='exception',
+                response_ok=False,
+            )
         return JsonResponse({'error': 'He thong tam thoi gap loi. Vui long thu lai sau it phut.'}, status=500)
 
 
@@ -958,6 +1984,70 @@ def _serialize_food(food, default_serving=''):
     }
 
 
+def _extract_recipe_ingredients(recipe, food):
+    ingredients = []
+    payload = getattr(recipe, 'ingredients_json', None) if recipe else None
+
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, str):
+                label = item.strip()
+            elif isinstance(item, dict):
+                name = (item.get('name') or item.get('ingredient') or item.get('original') or '').strip()
+                amount = str(item.get('amount') or item.get('quantity') or '').strip()
+                unit = str(item.get('unit') or '').strip()
+                pieces = [part for part in [amount, unit, name] if part]
+                label = ' '.join(pieces).strip()
+            else:
+                label = ''
+
+            if label:
+                ingredients.append(label)
+
+    if ingredients:
+        return ingredients
+
+    relation_qs = (
+        FoodIngredient.objects
+        .select_related('ingredient')
+        .filter(food_id=food.id)
+        .order_by('ingredient__name')
+    )
+    for rel in relation_qs:
+        ingredient_name = rel.ingredient.name if rel.ingredient else ''
+        quantity = float(rel.quantity_grams or 0)
+        if ingredient_name:
+            if quantity > 0:
+                ingredients.append(f'{quantity:g}g {ingredient_name}')
+            else:
+                ingredients.append(ingredient_name)
+
+    return ingredients
+
+
+def _extract_instruction_steps(recipe):
+    raw_instructions = getattr(recipe, 'instructions', '') if recipe else ''
+    if not raw_instructions:
+        return []
+
+    steps = []
+    for line in re.split(r'\r?\n+', str(raw_instructions)):
+        cleaned = line.strip().lstrip('-').strip()
+        if cleaned:
+            steps.append(cleaned)
+    return steps
+
+
+def _resolve_food_origin(food, recipe):
+    if recipe and recipe.source_url:
+        hostname = (urlparse(recipe.source_url).netloc or '').replace('www.', '').strip()
+        if hostname:
+            return f'Dữ liệu công thức từ {hostname}'
+    if food.description and 'spoonacular' in food.description.lower():
+        return 'Dữ liệu đồng bộ từ Spoonacular API'
+    return 'Dữ liệu nội bộ của Smart Home Chef'
+
+
 def foods(request):
     """Hiển thị danh sách món ăn với bộ lọc theo tên và category."""
     query = request.GET.get('q', '')
@@ -993,6 +2083,56 @@ def foods(request):
         'category': category,
         'categories': [c for c in categories if c],
         'search_notice': search_notice,
+        'active': 'foods',
+    })
+
+
+def food_detail(request, food_id):
+    """Hiển thị chi tiết món ăn: dinh dưỡng, công thức và nguồn dữ liệu."""
+    food = get_object_or_404(Food.objects.select_related('category'), id=food_id)
+    recipe = getattr(food, 'recipe', None)
+    account = get_current_account(request)
+    if account:
+        try:
+            SearchEvent.objects.create(
+                account=account,
+                query_text=f'food_detail:{food.name}',
+                normalized_query=f'food_detail:{food.name}'.lower(),
+                result_count=1,
+                clicked_food=food,
+                clicked_food_stt=getattr(food, 'id', None),
+            )
+            log_recommendation_bandit_event(
+                account,
+                food,
+                event_type='recommendation_clicked',
+                score=1.0,
+                metadata={'source': 'food_detail'},
+            )
+        except Exception:
+            pass
+
+    ingredients = _extract_recipe_ingredients(recipe, food)
+    instruction_steps = _extract_instruction_steps(recipe)
+
+    nutrition = {
+        'calories': float(food.calories or 0),
+        'protein': float(food.protein or 0),
+        'carbs': float(food.carbs or 0),
+        'fat': float(food.fat or 0),
+        'fiber': float(food.fiber or 0),
+        'sugar': float(food.sugar or 0),
+        'sodium': float(food.sodium or 0),
+        'cholesterol': float(food.cholesterol or 0),
+    }
+
+    return render(request, 'user/food_detail.html', {
+        'food': food,
+        'recipe': recipe,
+        'ingredients': ingredients,
+        'instruction_steps': instruction_steps,
+        'nutrition': nutrition,
+        'origin_text': _resolve_food_origin(food, recipe),
         'active': 'foods',
     })
 
@@ -1035,6 +2175,100 @@ def food_lookup(request):
         'success': True,
         'food': _serialize_food(food, default_serving='100g')
     })
+
+
+@csrf_exempt
+@require_POST
+def recommendation_feedback(request):
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON'}, status=400)
+
+    account = get_current_account(request)
+    if not account:
+        return JsonResponse({'ok': False, 'error': 'Vui long dang nhap'}, status=401)
+
+    food_id = data.get('food_id')
+    event_type = (data.get('event_type') or 'recommendation_clicked').strip()
+    rating = data.get('rating')
+    liked = data.get('liked')
+    context = data.get('context') or {}
+    recommendation_id = data.get('recommendation_id') or context.get('recommendation_id')
+
+    if not food_id:
+        return JsonResponse({'ok': False, 'error': 'Missing food_id'}, status=400)
+
+    food = Food.objects.filter(pk=food_id).first()
+    if not food:
+        return JsonResponse({'ok': False, 'error': 'Food not found'}, status=404)
+
+    recommendation = None
+    if recommendation_id:
+        recommendation = MealRecommendation.objects.filter(
+            pk=recommendation_id,
+            account=account,
+            food=food,
+        ).first()
+
+    if event_type == 'recommendation_rated' and rating is not None:
+        try:
+            rating_value = float(rating)
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'Invalid rating'}, status=400)
+        liked = bool(rating_value >= 4 if liked is None else liked)
+        try:
+            UserFeedbackFood.objects.update_or_create(
+                account=account,
+                food=food,
+                defaults={
+                    'rating': int(round(rating_value)),
+                    'is_liked': liked,
+                    'reason': str(context.get('reason') or '').strip(),
+                    'feedback_type': str(context.get('feedback_type') or 'taste').strip() or 'taste',
+                },
+            )
+        except Exception:
+            pass
+    else:
+        rating_value = None
+
+    was_accepted = None
+    was_helpful = None
+    if event_type == 'recommendation_clicked':
+        was_accepted = True
+    elif event_type == 'recommendation_rated':
+        was_helpful = bool(liked) if liked is not None else bool((rating_value or 0) >= 4)
+        was_accepted = was_helpful
+
+    try:
+        feedback_context = {
+            **context,
+            'event_type': event_type,
+            'food_id': food.id,
+        }
+        if recommendation_id:
+            feedback_context['recommendation_id'] = recommendation_id
+
+        UserFeedbackRecommendation.objects.create(
+            account=account,
+            food=food,
+            recommendation=recommendation,
+            was_accepted=was_accepted,
+            was_helpful=was_helpful,
+            context=feedback_context,
+        )
+    except Exception:
+        pass
+
+    ok = log_recommendation_bandit_event(
+        account,
+        food,
+        event_type=event_type,
+        score=float(rating or 1.0) if event_type == 'recommendation_rated' else 1.0,
+        metadata=context,
+    )
+    return JsonResponse({'ok': ok, 'food_id': food.id, 'event_type': event_type})
 
 
 @csrf_exempt

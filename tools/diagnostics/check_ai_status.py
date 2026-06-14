@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Check AI completion status of the smart-home-chef project."""
+import importlib.util
 import os
 import django
 
@@ -115,14 +116,25 @@ except Exception as e:
 print("\n[4] LLM INTEGRATION")
 print("-" * 70)
 try:
-    import google.generativeai as genai
     api_key = os.getenv('GEMINI_API_KEY')
+    has_google_genai = importlib.util.find_spec('google.genai') is not None
+    has_legacy_generativeai = importlib.util.find_spec('google.generativeai') is not None
+
     if api_key:
-        print(f"[OK] Gemini API configured (key length: {len(api_key)})")
+        client_names = []
+        if has_google_genai:
+            client_names.append('google.genai')
+        if has_legacy_generativeai:
+            client_names.append('google.generativeai')
+
+        if client_names:
+            print(f"[OK] Gemini API configured (key length: {len(api_key)}; client: {', '.join(client_names)})")
+        else:
+            print(f"[OK] Gemini API configured (key length: {len(api_key)}; client package not installed, runtime uses direct HTTP)")
     else:
         print("[ERROR] Gemini API key not set")
-except ImportError:
-    print("[ERROR] google.generativeai not installed")
+except Exception as e:
+    print(f"[ERROR] Gemini check failed: {str(e)[:80]}")
 
 # Feature Status
 print("\n[5] AI FEATURES STATUS")

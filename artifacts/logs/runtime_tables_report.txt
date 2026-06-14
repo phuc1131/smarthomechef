@@ -1,0 +1,78 @@
+====================================================================================================
+RUNTIME TABLE USAGE REPORT
+====================================================================================================
+
+[A] TABLES USED BY DJANGO MODELS
+----------------------------------------------------------------------------------------------------
+APP            MODEL                            TABLE                                    EXISTS  ROWS      
+----------------------------------------------------------------------------------------------------
+account        EmailAddress                     account_emailaddress                     YES     2         
+account        EmailConfirmation                account_emailconfirmation                YES     0         
+admin          LogEntry                         django_admin_log                         YES     0         
+auth           Group                            auth_group                               YES     0         
+auth           Permission                       auth_permission                          YES     240       
+auth           User                             auth_user                                YES     3         
+chat           ChatMessage                      chat_messages                            YES     906       
+chat           ChatResponseCache                chat_response_caches                     YES     11        
+chat           ChatSession                      chat_sessions                            YES     30        
+chat           ChatSummary                      chat_summaries                           YES     0         
+chat           IntentEmbedding                  intent_embeddings                        YES     0         
+chat           Intent                           intents                                  YES     36        
+chat           MessageIntent                    message_intents                          YES     465       
+chat           Pattern                          patterns                                 YES     24        
+contenttypes   ContentType                      django_content_type                      YES     60        
+core_models    AIRecommendation                 ai_recommendations                       YES     0         
+core_models    IntentPattern                    intent_patterns                          YES     0         
+core_models    MealRecommendation               meal_recommendations                     YES     0         
+core_models    ModelMetadata                    model_metadata                           YES     1         
+core_models    RecommendationLog                recommendation_log                       YES     0         
+core_models    SearchEvent                      search_events                            YES     0         
+core_models    UserFeedbackFood                 user_feedback_food                       YES     0         
+core_models    UserFeedbackRecommendation       user_feedback_recommendation             YES     0         
+meal_plans     MealPlan                         meal_plans                               YES     0         
+nutrition      DailyNutritionSummary            daily_nutrition_summary                  YES     0         
+nutrition      FoodCategory                     food_categories                          YES     73        
+nutrition      FoodIngredient                   food_ingredients                         YES     0         
+nutrition      FoodPopularity                   food_popularity                          YES     0         
+nutrition      Recipe                           food_recipes                             YES     301       
+nutrition      FoodTag                          food_tags                                NO      -         
+nutrition      Food                             foods                                    YES     323       
+nutrition      IngredientAlias                  ingredient_aliases                       NO      -         
+nutrition      IngredientNutrition              ingredient_nutrition                     YES     1850      
+nutrition      IngredientPrice                  ingredient_prices                        YES     1850      
+nutrition      Ingredient                       ingredients                              YES     1850      
+nutrition      NutritionLog                     nutrition_logs                           YES     1         
+nutrition      RecipeRating                     recipe_ratings                           NO      -         
+nutrition      ShoppingItem                     shopping_items                           NO      -         
+nutrition      ShoppingList                     shopping_lists                           NO      -         
+nutrition      UnitConversion                   unit_conversions                         YES     0         
+sessions       Session                          django_session                           YES     7         
+sites          Site                             django_site                              YES     1         
+socialaccount  SocialAccount                    socialaccount_socialaccount              YES     2         
+socialaccount  SocialApp                        socialaccount_socialapp                  YES     1         
+socialaccount  SocialToken                      socialaccount_socialtoken                YES     0         
+users          DiseaseNutritionRule             disease_nutrition_rules                  YES     0         
+users          Disease                          diseases                                 YES     0         
+users          UserBehaviorLog                  user_behavior_log                        YES     0         
+users          UserDisease                      user_diseases                            YES     0         
+users          UserFeedback                     user_feedback                            YES     0         
+users          UserGoal                         user_goals                               YES     0         
+users          UserPreferenceProfile            user_preference_profiles                 YES     3         
+users          UserProfile                      user_profiles                            YES     23        
+users          Account                          users                                    YES     38        
+
+[B] TABLES IN DATABASE NOT MAPPED TO DJANGO MODELS
+----------------------------------------------------------------------------------------------------
+- auth_group_permissions
+- auth_user_groups
+- auth_user_user_permissions
+- django_migrations
+- socialaccount_socialapp_sites
+
+[C] SUMMARY
+----------------------------------------------------------------------------------------------------
+Total Django models: 54
+Unique model tables: 54
+Existing DB tables: 54
+Missing model tables: 5
+Extra DB tables (not mapped): 5

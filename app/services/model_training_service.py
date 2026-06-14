@@ -1,8 +1,43 @@
-"""Lightweight internal AI training service.
+"""[PHÂN LOẠI Ý ĐỊNH - PHƯƠNG PHÁP 2: Trained Naive Bayes Model]
 
-Module này xây dựng một bộ phân loại intent có thể huấn luyện từ chính dữ liệu
+Lightweight internal AI training service.
+
+Module này xây dựng một bộ phân loại intent kiểu Naive Bayes có thể huấn luyện từ chính dữ liệu
 của dự án. Mô hình không dùng thư viện ML bên ngoài, nên có thể chạy trực tiếp
 trong stack hiện tại và cải thiện dần từ nhãn chat + pattern được lưu trong DB.
+
+Quy trình:
+1. Collect training documents:
+   - Lấy tất cả Pattern (hand-crafted examples per intent)
+   - Lấy tất cả MessageIntent labels (từ chat history)
+   
+2. Train Naive Bayes:
+   - Token hóa từng document
+   - Tính term frequency per intent
+   - Tính prior probability P(intent)
+   - Lưu token counts + probability vào snapshot
+   
+3. Inference (predict_intent):
+   - Token hóa user text
+   - Compute log-probability cho mỗi intent
+   - Chọn intent có score cao nhất
+   - Trả về confidence > threshold
+
+Ưu điểm:
+- Học từ dữ liệu thực của hệ thống
+- Cải thiện theo thời gian khi thêm messages/patterns
+- Không cần external training data
+- Lightweight, nhanh inference
+
+Giới hạn:
+- Cần có training data đầy đủ
+- Naive Bayes không capture word order
+- Ngôn ngữ phụ thuộc (token = word)
+
+Integration với 3 bộ phận chính:
+- [PHÂN LOẠI Ý ĐỊNH] Được gọi từ AIOrchestratorService.classify_intent()
+- [QUYẾT ĐỊNH ĐIỀU PHỐI] Nếu confidence >= 0.6 → prefer local route
+- [BỘ LỌC CÁ NHÂN HÓA] Intent được dùng để customize recommendations
 """
 
 # Cho phép dùng annotation kiểu mới ngay cả khi chạy trên một số phiên bản Python cũ hơn.

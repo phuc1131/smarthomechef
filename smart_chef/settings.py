@@ -196,6 +196,16 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    SOCIALACCOUNT_PROVIDERS['google']['APP'] = {
+        'name': 'Google',
+        'client_id': GOOGLE_CLIENT_ID,
+        'secret': GOOGLE_CLIENT_SECRET,
+        'settings': {
+            'hidden': True,
+        },
+    }
+
 # Allauth settings
 ACCOUNT_LOGIN_METHODS = {'email', 'username'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
@@ -217,6 +227,16 @@ EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.conso
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+# Support legacy env names used in .env: MY_EMAIL / MAIL_PASSWORD
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', os.environ.get('MY_EMAIL', ''))
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', os.environ.get('MAIL_PASSWORD', ''))
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@smarthomechef.com')
+
+# ============================================================================
+# LOCAL LLM CSV IMPORT
+# ============================================================================
+LOCAL_LLM_IMPORT_ENABLED = env_bool('LOCAL_LLM_IMPORT_ENABLED', True)
+OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
+OLLAMA_IMPORT_MODEL = os.environ.get('OLLAMA_IMPORT_MODEL', 'qwen2.5:7b')
+IMPORT_QWEN_MIN_CONFIDENCE = float(os.environ.get('IMPORT_QWEN_MIN_CONFIDENCE', '0.65'))
+IMPORT_QWEN_TIMEOUT = int(os.environ.get('IMPORT_QWEN_TIMEOUT', '120'))

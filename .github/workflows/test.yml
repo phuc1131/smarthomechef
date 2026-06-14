@@ -1,0 +1,94 @@
+name: Test & Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      sqlite:
+        image: sqlite:latest
+        options: >-
+          --health-cmd exit 0
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-django pytest-cov flake8 black
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+      continue-on-error: true
+    
+    - name: Format check with black
+      run: black --check . || true
+      continue-on-error: true
+    
+    - name: Run migrations
+      run: python manage.py migrate
+      env:
+        DEBUG: 'True'
+        SECRET_KEY: test-secret-key
+    
+    - name: Run tests
+      run: |
+        pytest tests/ -v --cov=app --cov=apps --cov-report=xml --cov-report=term-missing
+      env:
+        DEBUG: 'True'
+        SECRET_KEY: test-secret-key
+        DATABASE_URL: sqlite:///test_db.sqlite3
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install bandit safety
+    
+    - name: Run Bandit security check
+      run: bandit -r app apps --skip B101,B601 -f json -o bandit-report.json || true
+      continue-on-error: true
+    
+    - name: Check dependencies for security issues
+      run: safety check --json || true
+      continue-on-error: true

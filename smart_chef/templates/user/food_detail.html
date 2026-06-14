@@ -1,0 +1,121 @@
+{% extends "user/base.html" %}
+{% block title %}{{ food.name }} — Chi tiết món ăn{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start gap-3 flex-wrap">
+  <div>
+    <a href="/mon-an/" class="btn btn-sm btn-outline-secondary mb-3">
+      <i class="bi bi-arrow-left me-1"></i>Quay lại danh sách
+    </a>
+    <h2 class="mb-1">{{ food.name }}</h2>
+    <p class="mb-0 text-muted">
+      {% if food.category %}{{ food.category.name }} • {% endif %}{{ origin_text }}
+    </p>
+  </div>
+  {% if food.image_url %}
+  <img src="{{ food.image_url }}" alt="{{ food.name }}" style="width: 180px; max-width: 100%; border-radius: 16px; object-fit: cover;">
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="card-custom h-100 p-3">
+      <h5 class="mb-3"><i class="bi bi-bar-chart-fill me-2 text-success"></i>Thông tin dinh dưỡng</h5>
+      <div class="row g-2 text-center">
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold text-success">{{ nutrition.calories|floatformat:0 }}</div>
+            <div class="small text-muted">Calories</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.protein|floatformat:1 }}g</div>
+            <div class="small text-muted">Protein</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.carbs|floatformat:1 }}g</div>
+            <div class="small text-muted">Carbs</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.fat|floatformat:1 }}g</div>
+            <div class="small text-muted">Chất béo</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.fiber|floatformat:1 }}g</div>
+            <div class="small text-muted">Chất xơ</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.sugar|floatformat:1 }}g</div>
+            <div class="small text-muted">Đường</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.sodium|floatformat:1 }}mg</div>
+            <div class="small text-muted">Natri</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-2 border rounded">
+            <div class="fw-bold">{{ nutrition.cholesterol|floatformat:1 }}mg</div>
+            <div class="small text-muted">Cholesterol</div>
+          </div>
+        </div>
+      </div>
+
+      {% if food.description %}
+      <hr>
+      <h6>Mô tả</h6>
+      <p class="mb-0 text-muted">{{ food.description }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card-custom p-3 mb-3">
+      <h5 class="mb-3"><i class="bi bi-basket2-fill me-2 text-primary"></i>Nguyên liệu</h5>
+      {% if ingredients %}
+      <ul class="mb-0">
+        {% for item in ingredients %}
+        <li class="mb-1">{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted mb-0">Chưa có dữ liệu nguyên liệu cho món này.</p>
+      {% endif %}
+    </div>
+
+    <div class="card-custom p-3">
+      <h5 class="mb-3"><i class="bi bi-list-check me-2 text-warning"></i>Công thức chế biến</h5>
+      {% if instruction_steps %}
+      <ol class="mb-0">
+        {% for step in instruction_steps %}
+        <li class="mb-2">{{ step }}</li>
+        {% endfor %}
+      </ol>
+      {% elif recipe and recipe.summary %}
+      <p class="text-muted mb-0">{{ recipe.summary }}</p>
+      {% else %}
+      <p class="text-muted mb-0">Chưa có dữ liệu công thức cho món này.</p>
+      {% endif %}
+
+      {% if recipe and recipe.source_url %}
+      <hr>
+      <div class="small">
+        Nguồn tham khảo:
+        <a href="{{ recipe.source_url }}" target="_blank" rel="noopener">{{ recipe.source_url }}</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

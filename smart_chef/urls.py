@@ -14,6 +14,7 @@ urlpatterns = [
     path('admin-panel/import/', admin_views.unified_import_csv, name='unified_import_csv'),
     path('admin-panel/import/submit/', admin_views.unified_import_csv_submit, name='unified_import_csv_submit'),
     path('admin-panel/data-manager/', admin_views.admin_data_manager, name='admin_data_manager'),
+    path('admin-panel/ai-quality/', admin_views.admin_ai_quality_dashboard, name='admin_ai_quality_dashboard'),
     path('admin-panel/data-manager/crawl-control/', admin_views.admin_crawl_control, name='admin_crawl_control'),
     path('admin-panel/data-manager/model/<str:model_key>/', admin_views.admin_model_manager, name='admin_model_manager'),
     path('admin-panel/data-manager/export/<str:model_key>/', admin_views.admin_data_export, name='admin_data_export'),

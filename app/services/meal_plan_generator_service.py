@@ -43,6 +43,8 @@ from apps.nutrition.models import (
 from apps.meal_plans.models import MealPlan
 from app.services.external_apis import _gemini_generate_text, AI_AVAILABLE
 from app.services.food_data_service import get_or_fetch_ingredient
+from app.services.grocery_list_service import generate_shopping_list_from_meal_plan
+from app.services.ingredient_price_service import calculate_recipe_cost
 from app.services.nutrition_data_service import NutritionDataFiller
 from app.services.personalization_service import rank_food_candidates
 
@@ -58,7 +60,48 @@ class MealPlanGeneratorService:
     }
     
     @staticmethod
-    def analyze_request(request_text):
+    def _user_goal_codes(user_context):
+        codes = set()
+        if not user_context:
+            return codes
+        for goal in user_context.get('goals') or []:
+            goal_type = MealPlanGeneratorService._normalize_for_match(getattr(goal, 'goal_type', '') or '')
+            if goal_type:
+                codes.add(goal_type.replace(' ', '_'))
+        return codes
+
+    @staticmethod
+    def _user_goal_terms(user_context):
+        terms = []
+        if not user_context:
+            return []
+
+        profile_data = user_context.get('profile_data') or {}
+        for value in [
+            profile_data.get('health_goal') or '',
+            profile_data.get('medical_conditions') or '',
+            profile_data.get('dietary_preferences') or '',
+        ]:
+            normalized = MealPlanGeneratorService._normalize_for_match(value)
+            if normalized:
+                terms.append(normalized)
+                terms.extend(token for token in normalized.split() if len(token) > 2)
+
+        for disease_name in user_context.get('diseases') or []:
+            normalized = MealPlanGeneratorService._normalize_for_match(disease_name)
+            if normalized:
+                terms.append(normalized)
+                terms.extend(token for token in normalized.split() if len(token) > 2)
+
+        for goal_code in MealPlanGeneratorService._user_goal_codes(user_context):
+            goal_text = goal_code.replace('_', ' ')
+            terms.append(goal_text)
+            terms.extend(token for token in goal_text.split() if len(token) > 2)
+
+        return list(dict.fromkeys(term for term in terms if term))
+
+    @staticmethod
+    def analyze_request(request_text, user_context=None):
         """
         Phân tích yêu cầu từ user để xác định loại request.
         
@@ -69,25 +112,103 @@ class MealPlanGeneratorService:
             'constraints': {...}
         }
         """
-        request_lower = request_text.lower()
-        
+        normalized_text = MealPlanGeneratorService._normalize_for_match(request_text or '')
+        goal_terms = MealPlanGeneratorService._user_goal_terms(user_context)
+        goal_codes = MealPlanGeneratorService._user_goal_codes(user_context)
+        has_goal_context_match = any(term in normalized_text for term in goal_terms)
+
         # Phân loại request
-        if any(word in request_lower for word in ['bệnh', 'tiểu đường', 'huyết áp', 'mỡ máu', 'dị ứng', 'hen suyễn']):
+        if any(word in normalized_text for word in [
+            'benh', 'tieu duong', 'tiểu đường', 'huyet ap', 'huyết áp',
+            'mo mau', 'mỡ máu', 'di ung', 'dị ứng', 'hen suyên', 'hen suyễn',
+            'gan nhiem mo', 'gan nhiễm mỡ', 'mo gan', 'mỡ gan', 'fatty liver', 'hepatic steatosis',
+        ]) or has_goal_context_match:
             request_type = 'health'
-        elif any(word in request_lower for word in ['tiền', 'ngân sách', 'rẻ', 'tối thiểu', 'giá']):
+        elif any(word in normalized_text for word in ['tien', 'ngan sach', 're', 'toi thieu', 'gia', 'giá']):
             request_type = 'budget'
-        elif any(word in request_lower for word in ['chay', 'ăn chay', 'kiêng', 'không ăn', 'kiêng cữ']):
+        elif (
+            any(word in normalized_text for word in ['chay', 'an chay', 'kiêng', 'khong an', 'không ăn', 'kieng'])
+            or any(code in goal_codes for code in {'vegetarian', 'vegan', 'low_sodium', 'low_fat'})
+        ):
             request_type = 'diet'
+        elif any(code in goal_codes for code in {'high_protein', 'muscle_gain', 'weight_loss', 'energy_boost'}):
+            request_type = 'nutrition_target'
         else:
             request_type = 'general'
         
         return {
             'type': request_type,
-            'keywords': request_lower.split(),
+            'keywords': normalized_text.split(),
             'priority': 'normal',
             'original_request': request_text,
         }
-    
+
+    @staticmethod
+    def _normalize_health_context(user_context, request_text=None):
+        parts = []
+        if user_context and isinstance(user_context, dict):
+            profile_data = user_context.get('profile_data') or {}
+            parts.extend([
+                profile_data.get('health_goal') or '',
+                profile_data.get('medical_conditions') or '',
+                profile_data.get('dietary_preferences') or '',
+            ])
+            parts.extend(user_context.get('diseases') or [])
+            for goal in user_context.get('goals') or []:
+                goal_type = getattr(goal, 'goal_type', '') or ''
+                if goal_type:
+                    parts.append(str(goal_type).replace('_', ' '))
+        if request_text:
+            parts.append(request_text)
+        return MealPlanGeneratorService._normalize_for_match(' '.join(parts))
+
+    @staticmethod
+    def _health_condition_keywords():
+        return {
+            'low_fat': [
+                'gan nhiem mo', 'gan nhiễm mỡ', 'mỡ gan', 'moid gan', 'mỡ máu',
+                'fatty liver', 'hepatic steatosis', 'thanh dam', 'ăn thanh đạm',
+                'ít chất béo', 'it chat beo', 'low fat', 'ăn nhạt', 'an nhat',
+                'giảm mỡ', 'giam mo', 'high cholesterol', 'cholesterol',
+                'tim mach', 'tim mạch', 'heart disease',
+            ],
+            'diabetes': [
+                'tieu duong', 'tiểu đường', 'diabetes', 'blood sugar',
+                'đường huyết', 'duong huyet', 'insulin',
+            ],
+            'low_sodium': [
+                'huyết áp', 'huyet ap', 'cao huyết áp', 'cao huyet ap',
+                'tim mạch', 'tim mach', 'thận', 'than', 'ăn nhạt', 'an nhat',
+                'muối', 'muoi', 'salt',
+            ],
+            'weight_loss': [
+                'giảm cân', 'giam can', 'weight loss', 'slim', 'thanh manh',
+                'lành mạnh', 'lanh manh', 'eat clean', 'healthy',
+            ],
+            'high_fiber': [
+                'táo bón', 'tao bon', 'constipation', 'chất xơ', 'chat xo', 'fiber',
+            ],
+            'high_protein': [
+                'tăng cơ', 'tang co', 'protein cao', 'bổ sung protein',
+                'bo sung protein', 'mang thai', 'pregnancy', 'cho con bú', 'cho con bu',
+                'giàu đạm', 'giau dam', 'protein', 'nhiều đạm', 'nhieu dam',
+            ],
+        }
+
+    @staticmethod
+    def _extract_health_condition_categories(user_context, request_text=None):
+        combined = MealPlanGeneratorService._normalize_health_context(user_context, request_text)
+        categories = set()
+        for category, terms in MealPlanGeneratorService._health_condition_keywords().items():
+            if any(term in combined for term in terms):
+                categories.add(category)
+        return categories
+
+    @staticmethod
+    def _has_health_condition(user_context, terms, request_text=None):
+        combined = MealPlanGeneratorService._normalize_health_context(user_context, request_text)
+        return any(term in combined for term in terms)
+
     @staticmethod
     def get_user_context(account):
         """Lấy toàn bộ dữ liệu user từ DB."""
@@ -108,7 +229,7 @@ class MealPlanGeneratorService:
             'goals': list(goals),
             'diseases': [ud.disease.name for ud in diseases],
             'preferences': preferences,
-            'recent_food_ids': [log.food_id for log in recent_logs],
+            'recent_food_ids': [log.food.id for log in recent_logs],
             'profile_data': {
                 'age': profile.age if profile else None,
                 'weight': float(profile.weight) if profile and profile.weight else None,
@@ -120,9 +241,9 @@ class MealPlanGeneratorService:
         }
     
     @staticmethod
-    def build_food_filter(user_context, request_type):
+    def build_food_filter(user_context, request_type, request_text=None):
         """
-        Xây dựng filter query để tìm foods phù hợp dựa trên user context.
+        Xây dựng filter query để tìm foods phù hợp dựa trên user context và yêu cầu cụ thể.
         
         Return: Q object filter
         """
@@ -134,15 +255,38 @@ class MealPlanGeneratorService:
         # Base filter: chỉ lấy foods có dữ liệu hợp lệ
         q_filter = Q(name__isnull=False)
         
-        # Health-based filters
+        # Health-based filters (kết hợp cả context user và text yêu cầu)
         diseases_list = [d.lower() for d in user_context['diseases']]
-        
-        if any('tiểu đường' in d or 'diabetes' in d for d in diseases_list):
+        categories = MealPlanGeneratorService._extract_health_condition_categories(user_context, request_text=request_text)
+
+        # Thêm logic cho low_calories nếu có trong request_text
+        if request_text and any(kw in request_text.lower() for kw in ['ít calo', 'it calo', 'low calo', 'giảm calo']):
+            categories.add('weight_loss')
+
+        if any('tiểu đường' in d or 'diabetes' in d for d in diseases_list) or 'diabetes' in categories:
             q_filter &= Q(is_diabetes_friendly=True)
-        
-        if goals and any(g.goal_type == 'weight_loss' for g in goals):
+
+        goal_codes = MealPlanGeneratorService._user_goal_codes(user_context)
+
+        if ('weight_loss' in goal_codes) or 'weight_loss' in categories:
             q_filter &= Q(is_weight_loss_friendly=True)
-        
+            # Thêm ràng buộc calo cụ thể nếu là thực đơn ít calo
+            q_filter &= (Q(calories__lte=500) | Q(calories__isnull=True))
+
+        if 'low_fat' in categories:
+            q_filter &= (Q(fat__lte=15) | Q(fat__isnull=True))
+            q_filter &= (Q(calories__lte=600) | Q(calories__isnull=True))
+
+        if 'low_sodium' in categories:
+            q_filter &= (Q(fat__lte=18) | Q(fat__isnull=True))
+            q_filter &= (Q(fiber__gte=2) | Q(fiber__isnull=True))
+
+        if 'high_fiber' in categories:
+            q_filter &= (Q(fiber__gte=3) | Q(fiber__isnull=True))
+
+        if 'high_protein' in categories:
+            q_filter &= (Q(protein__gte=10) | Q(protein__isnull=True))
+
         # Dietary preferences - loại bỏ foods không phù hợp
         if preferences and preferences.avoided_keywords:
             avoided = preferences.avoided_keywords if isinstance(preferences.avoided_keywords, list) else []
@@ -158,13 +302,13 @@ class MealPlanGeneratorService:
         return q_filter
     
     @staticmethod
-    def query_foods_from_db(user_context, request_type, meal_type='lunch', limit=20, exclude_food_ids=None):
+    def query_foods_from_db(user_context, request_type, meal_type='lunch', request_text=None, limit=20, exclude_food_ids=None):
         """
         Query DB để tìm foods phù hợp.
-        
-        Return: QuerySet of Foods
+
+        Return: list of Foods
         """
-        q_filter = MealPlanGeneratorService.build_food_filter(user_context, request_type)
+        q_filter = MealPlanGeneratorService.build_food_filter(user_context, request_type, request_text=request_text)
         base_filter = Q(name__isnull=False)
         
         # Ưu tiên categories theo preference
@@ -193,6 +337,10 @@ class MealPlanGeneratorService:
         budget_limit = None
         if user_context.get('profile_data'):
             budget_limit = user_context['profile_data'].get('budget_limit')
+        if request_text:
+            extracted_budget = MealPlanGeneratorService._extract_budget_limit_from_text(request_text, user_context)
+            if extracted_budget:
+                budget_limit = extracted_budget
 
         scored = []
         for food in candidates:
@@ -203,15 +351,28 @@ class MealPlanGeneratorService:
 
         scored.sort()
         if budget_limit:
-            affordable_foods = [
-                food for cost_value, _, _, food in scored
-                if cost_value == 10**12 or cost_value <= float(budget_limit)
+            allowed_limit = MealPlanGeneratorService._budget_allowance_limit(float(budget_limit))
+            affordable_items = [
+                (cost_value, care, neg_id, food)
+                for cost_value, care, neg_id, food in scored
+                if cost_value != 10**12 and cost_value <= allowed_limit
             ]
-            if not affordable_foods:
+            if not affordable_items:
                 return []
-            candidate_foods = affordable_foods[: max(limit * 2, limit)]
+
+            affordable_items.sort(key=lambda item: (
+                0 if item[0] <= float(budget_limit) else 1,
+                abs(item[0] - float(budget_limit)),
+                item[1],
+                item[2],
+            ))
+            candidate_foods = [food for _, _, _, food in affordable_items[: max(limit * 2, limit)]]
         else:
             candidate_foods = [food for _, _, _, food in scored[: max(limit * 2, limit)]]
+
+        for cost_value, _, _, food in scored:
+            if getattr(food, 'estimated_cost', None) is None and cost_value != 10**12:
+                setattr(food, 'estimated_cost', cost_value)
 
         account = user_context.get('account')
         if account and candidate_foods:
@@ -276,33 +437,140 @@ class MealPlanGeneratorService:
         return text.strip()
 
     @staticmethod
+    def _budget_tolerance(budget_limit):
+        if not budget_limit or budget_limit <= 0:
+            return 0.0
+        if budget_limit <= 100_000:
+            return 0.10
+        if budget_limit <= 200_000:
+            return 0.08
+        if budget_limit <= 500_000:
+            return 0.06
+        if budget_limit <= 1_000_000:
+            return 0.04
+        return 0.02
+
+    @staticmethod
+    def _budget_allowance_limit(budget_limit):
+        tolerance = MealPlanGeneratorService._budget_tolerance(budget_limit)
+        return float(budget_limit) * (1.0 + tolerance)
+
+    @staticmethod
     def _extract_budget_limit_from_text(request_text, user_context):
+        explicit_budget = MealPlanGeneratorService._extract_explicit_budget_from_text(request_text)
+        if explicit_budget is not None:
+            return explicit_budget
+
         profile_budget = user_context.get('profile_data', {}).get('budget_limit')
         if profile_budget:
             try:
                 return float(profile_budget)
             except Exception:
-                pass
+                return None
+        return None
 
+    @staticmethod
+    def _extract_explicit_budget_from_text(request_text):
         text = MealPlanGeneratorService._normalize_for_match(request_text)
-        match = re.search(r'(\d+(?:[\.,]\d+)?)\s*(trieu|triệu|k|nghin|nghìn|d)', text)
+        match = re.search(r'(\d+(?:[\.,]\d+)?)\s*(trieu|k|nghin|ngan|vnd|d)\b', text)
         if not match:
             return None
 
-        amount = match.group(1).replace(',', '.')
         try:
-            value = float(amount)
+            value = float(match.group(1).replace(',', '.'))
         except Exception:
             return None
 
         unit = match.group(2)
-        if unit in {'trieu', 'triệu'}:
+        if unit == 'trieu':
             return value * 1_000_000
-        if unit == 'k':
-            return value * 1_000
-        if unit in {'nghin', 'nghìn'}:
+        if unit in {'k', 'nghin', 'ngan'}:
             return value * 1_000
         return value
+
+    @staticmethod
+    def _resolve_budget_context(request_text, user_context, plan_days):
+        explicit_budget = MealPlanGeneratorService._extract_explicit_budget_from_text(request_text)
+        profile_budget = user_context.get('profile_data', {}).get('budget_limit')
+        normalized = MealPlanGeneratorService._normalize_for_match(request_text)
+
+        if explicit_budget is not None:
+            if re.search(r'(\/\s*ngay|\bngay\b)', normalized):
+                daily_budget = float(explicit_budget)
+                total_budget = float(explicit_budget) * max(plan_days, 1)
+            else:
+                total_budget = float(explicit_budget)
+                daily_budget = float(explicit_budget) / max(plan_days, 1)
+        elif profile_budget:
+            daily_budget = float(profile_budget)
+            total_budget = float(profile_budget) * max(plan_days, 1)
+        else:
+            daily_budget = None
+            total_budget = None
+
+        meal_budgets = {}
+        if daily_budget is not None:
+            meal_budgets = {
+                'breakfast': round(daily_budget * 0.25, 2),
+                'lunch': round(daily_budget * 0.35, 2),
+                'dinner': round(daily_budget * 0.35, 2),
+                'snack': round(daily_budget * 0.05, 2),
+            }
+
+        return {
+            'has_budget': daily_budget is not None,
+            'explicit_budget': explicit_budget,
+            'daily_budget': daily_budget,
+            'total_budget': total_budget,
+            'meal_budgets': meal_budgets,
+        }
+
+    @staticmethod
+    def _food_cost_info(food, servings=1.0):
+        info = calculate_recipe_cost(food, servings=servings)
+        if info.get('total_cost') is not None:
+            setattr(food, 'estimated_cost', info['total_cost'])
+        return info
+
+    @staticmethod
+    def _food_is_valid_for_budget(food, meal_budget, servings=1.0):
+        info = MealPlanGeneratorService._food_cost_info(food, servings=servings)
+        if not info.get('has_ingredient_details'):
+            return False, info
+        if info.get('missing_primary_price'):
+            return False, info
+        total_cost = info.get('total_cost')
+        if total_cost is None:
+            return False, info
+        if meal_budget is not None and float(total_cost) > float(meal_budget):
+            return False, info
+        return True, info
+
+    @staticmethod
+    def _select_food_for_meal(foods, meal_key, budget_context):
+        if not foods:
+            return None, None
+
+        meal_budget = (budget_context or {}).get('meal_budgets', {}).get(meal_key)
+        if not (budget_context or {}).get('has_budget'):
+            selected_food = foods[0]
+            return selected_food, MealPlanGeneratorService._food_cost_info(selected_food)
+
+        viable = []
+        incomplete = []
+        for food in foods:
+            is_valid, cost_info = MealPlanGeneratorService._food_is_valid_for_budget(food, meal_budget)
+            if is_valid:
+                viable.append((float(cost_info.get('total_cost') or 0), food, cost_info))
+            else:
+                incomplete.append((food, cost_info))
+
+        if viable:
+            viable.sort(key=lambda item: item[0])
+            _, food, cost_info = viable[0]
+            return food, cost_info
+
+        return None, incomplete[0][1] if incomplete else None
 
     @staticmethod
     def _ingredient_price_value(ingredient):
@@ -357,13 +625,14 @@ class MealPlanGeneratorService:
             score += 4
 
         # Ngữ cảnh ăn lành mạnh / bệnh lý / ăn kiêng
-        health_keywords = {'lanh manh', 'lành mạnh', 'healthy', 'eat clean', 'eatclean', 'giam can', 'giảm cân', 'weight loss'}
-        if any(keyword in combined_blob for keyword in health_keywords):
-            nutrition = MealPlanGeneratorService._ingredient_nutrition_profile(ingredient)
-            protein = nutrition.get('protein') or 0
-            fiber = nutrition.get('fiber') or 0
-            calories = nutrition.get('calories') or 0
-            fat = nutrition.get('fat') or 0
+        categories = MealPlanGeneratorService._extract_health_condition_categories(user_context, request_text)
+        nutrition = MealPlanGeneratorService._ingredient_nutrition_profile(ingredient)
+        protein = nutrition.get('protein') or 0
+        fiber = nutrition.get('fiber') or 0
+        calories = nutrition.get('calories') or 0
+        fat = nutrition.get('fat') or 0
+
+        if any(category in categories for category in ['weight_loss', 'high_fiber', 'high_protein', 'low_fat', 'low_sodium', 'diabetes']):
             if protein > 0:
                 score += min(4, int(protein / 5))
             if fiber > 0:
@@ -372,6 +641,28 @@ class MealPlanGeneratorService:
                 score += 3
             if fat and fat <= 10:
                 score += 2
+
+        if 'low_fat' in categories:
+            if fat and fat <= 12:
+                score += 4
+            elif fat and fat <= 18:
+                score += 2
+            if fiber and fiber >= 3:
+                score += 2
+            if calories and calories <= 500:
+                score += 1
+
+        if 'diabetes' in categories:
+            if calories and calories <= 300:
+                score += 2
+            if fat and fat <= 15:
+                score += 1
+
+        if 'high_protein' in categories:
+            if protein >= 12:
+                score += 2
+            if calories and calories <= 550:
+                score += 1
 
         # Ưu tiên rẻ khi request có ngân sách
         budget_limit = MealPlanGeneratorService._extract_budget_limit_from_text(request_text, user_context)
@@ -449,7 +740,10 @@ class MealPlanGeneratorService:
 
             if MealPlanGeneratorService._ingredient_alias_table_exists():
                 try:
-                    aliases = [MealPlanGeneratorService._normalize_for_match(alias.alias) for alias in ingredient.aliases.all()]
+                    aliases = [
+                        MealPlanGeneratorService._normalize_for_match(alias.alias)
+                        for alias in IngredientAlias.objects.filter(ingredient=ingredient)
+                    ]
                     if any(alias and (alias in request_blob or request_blob in alias) for alias in aliases):
                         score += 4
                 except Exception:
@@ -498,6 +792,49 @@ class MealPlanGeneratorService:
         return payload if isinstance(payload, dict) else None
 
     @staticmethod
+    def _extract_json_from_text(response_text):
+        if not response_text:
+            return None
+
+        cleaned = re.sub(r'```(?:json)?', '', response_text, flags=re.IGNORECASE).strip()
+        start_idx = cleaned.find('{')
+        if start_idx == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start_idx, len(cleaned)):
+            char = cleaned[idx]
+            if escape:
+                escape = False
+                continue
+            if char == '\\':
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    candidate = cleaned[start_idx:idx + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        return None
+
+        return None
+
+    @staticmethod
+    def _gemini_error_message():
+        return 'AI đang bận. Vui lòng thử lại sau ít phút.'
+
+    @staticmethod
     def _quantity_to_grams(quantity, unit):
         try:
             qty = Decimal(str(quantity or 0))
@@ -529,6 +866,12 @@ class MealPlanGeneratorService:
             )
         except Exception:
             return None
+
+    @staticmethod
+    def _food_has_ingredient_details(food):
+        if not food:
+            return False
+        return FoodIngredient.objects.filter(food=food).exists()
 
     @staticmethod
     def _generate_food_from_ingredients_with_gemini(account, request_text, user_context, analyzed_request, meal_key, target_date=None):
@@ -579,6 +922,7 @@ class MealPlanGeneratorService:
 
         system_instruction = (
             'Bạn là trợ lý tạo món ăn cho Smart Home Chef. '
+            'Hãy sử dụng dữ liệu nguyên liệu có trong bảng Ingredient của hệ thống nếu có thể. '
             'Nếu có danh sách nguyên liệu thì ưu tiên dùng các nguyên liệu đó. '
             'Nếu không có nguyên liệu, hãy tự tạo món phù hợp mục tiêu dinh dưỡng của người dùng. '
             'Trả về JSON hợp lệ, không thêm giải thích ngoài JSON.'
@@ -669,15 +1013,9 @@ class MealPlanGeneratorService:
                 saved_ingredients += 1
 
             if saved_ingredients == 0:
-                # Vẫn giữ món AI tạo để lấp meal plan khi DB nghèo dữ liệu nguyên liệu.
-                food.description = ' | '.join(
-                    part for part in [
-                        str(food.description or '').strip(),
-                        'AI-generated: ingredient links unavailable'
-                    ]
-                    if part
-                )
-                food.save(update_fields=['description'])
+                # Nếu không có nguyên liệu DB để gán, không dùng món AI này làm thực đơn.
+                food.delete()
+                return None
 
             return food
     
@@ -743,7 +1081,7 @@ class MealPlanGeneratorService:
             return {
                 'success': False,
                 'meal_plans': [],
-                'message': 'Gemini API không khả dụng. Vui lòng thử lại sau.',
+                'message': 'Dịch vụ AI không khả dụng. Vui lòng thử lại sau.',
                 'api_used': False,
             }
         
@@ -791,21 +1129,19 @@ class MealPlanGeneratorService:
             # Parse JSON response
             recommendations = {}
             if gemini_response:
-                # Cố gắng extract JSON từ response
-                import re
-                json_match = re.search(r'\{[^{}]*(?:"(?:breakfast|lunch|dinner|snack)"[^}]*)*\}', gemini_response, re.DOTALL)
-                if json_match:
-                    try:
-                        recommendations = json.loads(json_match.group())
-                    except json.JSONDecodeError:
-                        # Fallback: parse thủ công từ response text
-                        recommendations = _parse_gemini_meal_recommendations(gemini_response)
-            
-            if not recommendations:
+                recommendations = MealPlanGeneratorService._extract_json_from_text(gemini_response) or {}
+                if not recommendations:
+                    recommendations = MealPlanGeneratorService._parse_gemini_meal_recommendations(gemini_response)
+
+            if not recommendations or not any(recommendations.values()):
+                # Nếu Gemini không trả về JSON chuẩn, cứ tiếp tục với parser fallback
+                recommendations = MealPlanGeneratorService._parse_gemini_meal_recommendations(gemini_response or '')
+
+            if not recommendations or not any(recommendations.values()):
                 return {
                     'success': False,
                     'meal_plans': [],
-                    'message': 'Không thể parse gợi ý từ Gemini. Vui lòng thử lại.',
+                    'message': MealPlanGeneratorService._gemini_error_message(),
                     'api_used': True,
                 }
             
@@ -848,6 +1184,18 @@ class MealPlanGeneratorService:
                         id__in=user_context.get('recent_food_ids', [])
                     ).first()
 
+                if selected_food and analyzed_request['type'] == 'budget' and not MealPlanGeneratorService._food_has_ingredient_details(selected_food):
+                    generated_food = MealPlanGeneratorService._generate_food_from_ingredients_with_gemini(
+                        account=account,
+                        request_text=request_text,
+                        user_context=user_context,
+                        analyzed_request=analyzed_request,
+                        meal_key=meal_key,
+                        target_date=target_date,
+                    )
+                    if generated_food:
+                        selected_food = generated_food
+
                 if not selected_food:
                     selected_food = MealPlanGeneratorService._generate_food_from_ingredients_with_gemini(
                         account=account,
@@ -877,7 +1225,7 @@ class MealPlanGeneratorService:
                     date=target_date,
                     meal_type=meal_vi,
                     servings=Decimal(str(servings)),
-                    notes=f'AI-generated with Gemini fallback ({analyzed_request["type"]} plan): {request_text}'
+                    notes=f'AI-generated fallback ({analyzed_request["type"]} plan): {request_text}'
                 )
                 meal_plans.append(plan)
             
@@ -885,7 +1233,7 @@ class MealPlanGeneratorService:
                 return {
                     'success': False,
                     'meal_plans': [],
-                    'message': 'Không tìm thấy foods phù hợp trong database để match với gợi ý Gemini.',
+                    'message': MealPlanGeneratorService._gemini_error_message(),
                     'api_used': True,
                     'recommendations': recommendations,
                 }
@@ -893,16 +1241,16 @@ class MealPlanGeneratorService:
             return {
                 'success': True,
                 'meal_plans': meal_plans,
-                'message': f'Tạo thực đơn thành công (Gemini fallback) cho {target_date} dựa trên yêu cầu: {request_text}',
+                'message': f'Tạo thực đơn thành công (fallback) cho {target_date} dựa trên yêu cầu: {request_text}',
                 'api_used': True,
                 'recommendations': recommendations,
             }
         
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
                 'meal_plans': [],
-                'message': f'Lỗi gọi Gemini API: {str(e)}',
+                'message': MealPlanGeneratorService._gemini_error_message(),
                 'api_used': True,
             }
     
@@ -983,17 +1331,18 @@ class MealPlanGeneratorService:
         
         try:
             # Bước 1: Phân tích request
-            analyzed = MealPlanGeneratorService.analyze_request(request_text)
-            
             # Bước 2: Lấy context user
             user_context = MealPlanGeneratorService.get_user_context(account)
+            analyzed = MealPlanGeneratorService.analyze_request(request_text, user_context=user_context)
 
             plan_days = MealPlanGeneratorService._resolve_plan_days(request_text)
+            budget_context = MealPlanGeneratorService._resolve_budget_context(request_text, user_context, plan_days)
             
             meal_plans = []
             used_food_ids = set(user_context.get('recent_food_ids', []))
             meal_order = ['breakfast', 'lunch', 'dinner', 'snack']
             api_fallback_used = False
+            skipped_budget_reasons = []
 
             # Bước 3-4: Lập meal plan cho từng ngày, ưu tiên món có giá/chi phí hợp lý
             for day_index in range(plan_days):
@@ -1005,10 +1354,25 @@ class MealPlanGeneratorService:
                         user_context,
                         analyzed['type'],
                         meal_type=meal_key,
+                        request_text=request_text,
                         limit=10,
                         exclude_food_ids=used_food_ids,
                     )
-                    if not foods:
+                    selected_food, selected_cost_info = MealPlanGeneratorService._select_food_for_meal(
+                        foods,
+                        meal_key,
+                        budget_context,
+                    )
+
+                    if not selected_food and budget_context.get('has_budget') and selected_cost_info:
+                        if selected_cost_info.get('missing_primary_price'):
+                            skipped_budget_reasons.append(f'{meal_key}: thiếu giá nguyên liệu chính')
+                        elif selected_cost_info.get('total_cost') is not None:
+                            skipped_budget_reasons.append(
+                                f'{meal_key}: món hiện có vượt ngân sách bữa {budget_context["meal_budgets"].get(meal_key, 0):,.0f}đ'
+                            )
+
+                    if not selected_food:
                         generated_food = MealPlanGeneratorService._generate_food_from_ingredients_with_gemini(
                             account=account,
                             request_text=request_text,
@@ -1018,12 +1382,31 @@ class MealPlanGeneratorService:
                             target_date=current_date,
                         )
                         if generated_food:
-                            foods = [generated_food]
-                            api_fallback_used = True
-                        else:
+                            is_valid_generated = True
+                            generated_cost_info = MealPlanGeneratorService._food_cost_info(generated_food)
+                            if budget_context.get('has_budget'):
+                                is_valid_generated, generated_cost_info = MealPlanGeneratorService._food_is_valid_for_budget(
+                                    generated_food,
+                                    budget_context['meal_budgets'].get(meal_key),
+                                )
+                            if is_valid_generated:
+                                selected_food = generated_food
+                                selected_cost_info = generated_cost_info
+                                api_fallback_used = True
+                        if not selected_food:
                             continue
 
-                    selected_food = foods[0]
+                    if analyzed['type'] == 'budget' and not MealPlanGeneratorService._food_has_ingredient_details(selected_food):
+                        continue
+
+                    if analyzed['type'] == 'budget' and budget_context.get('has_budget'):
+                        is_valid_budget_food, selected_cost_info = MealPlanGeneratorService._food_is_valid_for_budget(
+                            selected_food,
+                            budget_context['meal_budgets'].get(meal_key),
+                        )
+                        if not is_valid_budget_food:
+                            continue
+
                     if float(selected_food.calories or 0) <= 0 or float(selected_food.protein or 0) <= 0:
                         NutritionDataFiller.fill_missing_nutrition(
                             selected_food,
@@ -1083,6 +1466,14 @@ class MealPlanGeneratorService:
                         if not generated_food:
                             continue
 
+                        if budget_context.get('has_budget'):
+                            is_valid_budget_food, _ = MealPlanGeneratorService._food_is_valid_for_budget(
+                                generated_food,
+                                budget_context['meal_budgets'].get(meal_key),
+                            )
+                            if not is_valid_budget_food:
+                                continue
+
                         meal_vi, min_cal, max_cal = MealPlanGeneratorService.MEAL_TYPES[meal_key]
                         servings = 1.0
                         food_cal = float(generated_food.calories or 0)
@@ -1109,30 +1500,61 @@ class MealPlanGeneratorService:
 
                 if fallback_meal_plans:
                     date_labels = sorted({str(plan.date) for plan in fallback_meal_plans})
+                    shopping_summary = generate_shopping_list_from_meal_plan(
+                        account,
+                        date_start=target_date,
+                        date_end=target_date + timedelta(days=max(plan_days - 1, 0)),
+                        budget=budget_context.get('total_budget') if budget_context.get('has_budget') else None,
+                    )
                     return {
                         'success': True,
                         'meal_plans': fallback_meal_plans,
                         'message': (
-                            f'Gemini đã tự tạo món từ nguyên liệu phù hợp và lập thực đơn cho {plan_days} ngày từ {target_date}. '
+                            f'đã tự tạo món từ nguyên liệu phù hợp và lập thực đơn cho {plan_days} ngày từ {target_date}. '
                             f'Đã lưu vào trang Thực đơn.'
                         ),
                         'api_fallback_used': True,
                         'request_type': analyzed['type'],
                         'plan_days': plan_days,
                         'plan_dates': date_labels,
+                        'budget_context': budget_context,
+                        'shopping_summary': shopping_summary,
+                        'total_estimated_cost': shopping_summary.get('estimated_cost'),
+                        'budget_remaining': (
+                            round(float(budget_context['total_budget']) - float(shopping_summary.get('estimated_cost')), 2)
+                            if budget_context.get('total_budget') is not None and shopping_summary.get('estimated_cost') is not None
+                            else None
+                        ),
+                        'budget_filter_notes': skipped_budget_reasons,
                     }
 
                 return {
                     'success': False,
                     'meal_plans': [],
-                    'message': 'Không tìm được nguyên liệu phù hợp để Gemini tạo món thay thế. Vui lòng bổ sung dữ liệu hoặc thử lại.',
+                    'message': (
+                        'Hệ thống chưa đủ dữ liệu để tạo thực đơn đúng theo yêu cầu.'
+                        if budget_context.get('has_budget')
+                        else 'Mình không thể tạo thực đơn lúc này.'
+                    ),
                     'api_fallback_used': api_fallback_used,
                     'request_type': analyzed['type'],
                     'plan_days': plan_days,
+                    'budget_context': budget_context,
+                    'budget_filter_notes': skipped_budget_reasons,
                 }
             
             date_labels = sorted({str(plan.date) for plan in meal_plans})
             created_days = len(date_labels)
+            shopping_summary = generate_shopping_list_from_meal_plan(
+                account,
+                date_start=target_date,
+                date_end=target_date + timedelta(days=max(plan_days - 1, 0)),
+                budget=budget_context.get('total_budget') if budget_context.get('has_budget') else None,
+            )
+            total_cost = shopping_summary.get('estimated_cost')
+            budget_remaining = None
+            if budget_context.get('total_budget') is not None and total_cost is not None:
+                budget_remaining = round(float(budget_context['total_budget']) - float(total_cost), 2)
             return {
                 'success': True,
                 'meal_plans': meal_plans,
@@ -1144,6 +1566,11 @@ class MealPlanGeneratorService:
                 'request_type': analyzed['type'],
                 'plan_days': plan_days,
                 'plan_dates': date_labels,
+                'budget_context': budget_context,
+                'shopping_summary': shopping_summary,
+                'total_estimated_cost': total_cost,
+                'budget_remaining': budget_remaining,
+                'budget_filter_notes': skipped_budget_reasons,
             }
         
         except Exception as e:

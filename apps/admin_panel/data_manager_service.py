@@ -1,10 +1,13 @@
 import csv
+import io
 import json
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
+import requests
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 from django.http import HttpResponse
@@ -367,7 +370,15 @@ def _parse_bool_value(value):
 
 
 def _parse_decimal_value(value):
-    text = _clean_text_value(value).replace(',', '')
+    text = _clean_text_value(value)
+    text = re.sub(r'[^0-9,.\-]', '', text)
+    if ',' in text and '.' in text:
+        if text.rfind(',') > text.rfind('.'):
+            text = text.replace('.', '').replace(',', '.')
+        else:
+            text = text.replace(',', '')
+    elif ',' in text:
+        text = text.replace(',', '.')
     if not text:
         return None
     try:
@@ -377,7 +388,15 @@ def _parse_decimal_value(value):
 
 
 def _parse_int_value(value):
-    text = _clean_text_value(value).replace(',', '')
+    text = _clean_text_value(value)
+    text = re.sub(r'[^0-9,.\-]', '', text)
+    if ',' in text and '.' in text:
+        if text.rfind(',') > text.rfind('.'):
+            text = text.replace('.', '').replace(',', '.')
+        else:
+            text = text.replace(',', '')
+    elif ',' in text:
+        text = text.replace(',', '.')
     if not text:
         return None
     try:
@@ -387,13 +406,43 @@ def _parse_int_value(value):
 
 
 def _parse_float_value(value):
-    text = _clean_text_value(value).replace(',', '')
+    text = _clean_text_value(value)
+    text = re.sub(r'[^0-9,.\-]', '', text)
+    if ',' in text and '.' in text:
+        if text.rfind(',') > text.rfind('.'):
+            text = text.replace('.', '').replace(',', '.')
+        else:
+            text = text.replace(',', '')
+    elif ',' in text:
+        text = text.replace(',', '.')
     if not text:
         return None
     try:
         return float(text)
     except ValueError as exc:
         raise ValueError('khong phai so thuc hop le') from exc
+
+
+def _decode_uploaded_csv(uploaded_file):
+    raw_bytes = uploaded_file.read()
+    encodings = ['utf-8-sig', 'utf-8', 'cp1258', 'latin-1']
+    last_error = None
+
+    for encoding in encodings:
+        try:
+            return raw_bytes.decode(encoding), encoding
+        except UnicodeDecodeError as exc:
+            last_error = exc
+
+    raise ValueError(f'Khong doc duoc file CSV. Loi encoding: {last_error}')
+
+
+def _detect_csv_dialect(csv_text):
+    sample = csv_text[:4096]
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=[',', ';', '\t', '|'])
+    except csv.Error:
+        return csv.excel
 
 
 def _parse_date_value(value):
@@ -513,21 +562,38 @@ def _normalize_field_value(field, raw_value):
     return text, None, warnings
 
 
-def _csv_row_to_model_payload(model, raw_row):
+def _csv_row_to_model_payload(model, raw_row, header_mapping=None):
     payload = {}
     errors = []
     warnings = []
+    header_mapping = header_mapping or {}
 
     for field in model._meta.fields:
-        if getattr(field, 'auto_created', False) and not field.concrete:
+        if getattr(field, 'auto_created', False) and not getattr(field, 'primary_key', False):
             continue
 
-        row_value = raw_row.get(field.name, None)
-        if row_value is None and getattr(field, 'attname', None) and field.attname != field.name:
-            row_value = raw_row.get(field.attname, None)
+        candidate_headers = []
+        if field.name in header_mapping:
+            candidate_headers.append(header_mapping[field.name])
 
-        if row_value is None:
+        field_attname = getattr(field, 'attname', None)
+        if field_attname and field_attname in header_mapping:
+            candidate_headers.append(header_mapping[field_attname])
+
+        candidate_headers.append(field.name)
+        if field_attname and field_attname != field.name:
+            candidate_headers.append(field_attname)
+
+        csv_header = None
+        for header in candidate_headers:
+            if header in raw_row:
+                csv_header = header
+                break
+
+        if not csv_header:
             continue
+
+        row_value = raw_row.get(csv_header, None)
 
         if field.primary_key and field.auto_created and _clean_text_value(row_value) == '':
             continue
@@ -537,7 +603,7 @@ def _csv_row_to_model_payload(model, raw_row):
             payload[field.name] = normalized_value
             for warning in field_warnings:
                 warnings.append(f'{field.name}: {warning}')
-        except ValueError as exc:
+        except Exception as exc:
             errors.append(f'{field.name}: {exc}')
 
     return payload, warnings, errors
@@ -562,6 +628,290 @@ def _get_all_models():
         'ChatSummary': ChatSummary,
         'MessageIntent': MessageIntent,
         'AIRecommendation': AIRecommendation,
+    }
+
+
+def _build_allowed_models_schema(models_map):
+    schema = {}
+
+    for model_key, model in models_map.items():
+        fields = []
+
+        for field in model._meta.fields:
+            if getattr(field, 'auto_created', False) and not getattr(field, 'primary_key', False):
+                continue
+
+            field_info = {
+                'name': field.name,
+                'attname': getattr(field, 'attname', field.name),
+                'type': field.get_internal_type(),
+                'required': (
+                    not getattr(field, 'blank', False)
+                    and not getattr(field, 'null', False)
+                    and not getattr(field, 'primary_key', False)
+                ),
+            }
+
+            if getattr(field, 'many_to_one', False):
+                field_info['relation'] = field.related_model.__name__
+
+            fields.append(field_info)
+
+        schema[model_key] = {
+            'model_name': model.__name__,
+            'fields': fields,
+        }
+
+    return schema
+
+
+def _ask_qwen_import_classifier(headers, sample_rows, models_map):
+    allowed_schema = _build_allowed_models_schema(models_map)
+    prompt = f"""
+Ban la module phan loai CSV cho he thong Smart Home Chef.
+
+Nhiem vu:
+1. Xac dinh file CSV phu hop voi model Django nao.
+2. Map header CSV sang field cua model do.
+3. Chi duoc dung model_key va field co trong allowed_models.
+4. Khong duoc bia model moi.
+5. Khong duoc bia field moi.
+6. Neu header qua mo ho thi tra need_manual_confirm = true.
+7. Chi tra ve JSON hop le, khong giai thich ngoai JSON.
+
+Headers CSV:
+{json.dumps(headers, ensure_ascii=False)}
+
+Sample rows:
+{json.dumps(sample_rows, ensure_ascii=False)}
+
+Allowed models:
+{json.dumps(allowed_schema, ensure_ascii=False)}
+
+JSON bat buoc:
+{{
+  "target_model_key": "model_key hoac null",
+  "confidence": 0.0,
+  "need_manual_confirm": false,
+  "header_mapping": {{
+    "field_name": "CSV Header"
+  }},
+  "reason": "ly do ngan gon",
+  "warnings": []
+}}
+"""
+
+    try:
+        response = requests.post(
+            f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat",
+            json={
+                'model': settings.OLLAMA_IMPORT_MODEL,
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'Ban la bo phan loai CSV. Chi tra ve JSON hop le.',
+                    },
+                    {
+                        'role': 'user',
+                        'content': prompt,
+                    },
+                ],
+                'stream': False,
+                'format': 'json',
+            },
+            timeout=getattr(settings, 'IMPORT_QWEN_TIMEOUT', 120),
+        )
+        response.raise_for_status()
+    except requests.Timeout as exc:
+        raise RuntimeError('Qwen local bi timeout khi phan tich CSV') from exc
+    except requests.ConnectionError as exc:
+        raise RuntimeError(
+            f'Khong ket noi duoc Ollama tai {getattr(settings, "OLLAMA_BASE_URL", "")}. '
+            'Hay kiem tra Ollama da chay chua.'
+        ) from exc
+    except requests.HTTPError as exc:
+        message = ''
+        try:
+            message = response.json().get('error') or response.text
+        except Exception:
+            message = getattr(response, 'text', '') or str(exc)
+        raise RuntimeError(f'Ollama/Qwen tra ve loi HTTP: {message}') from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(f'Khong goi duoc Qwen local: {exc}') from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError('Ollama tra ve JSON HTTP khong hop le') from exc
+
+    content = ((data.get('message') or {}).get('content') or '').strip()
+    if not content:
+        raise RuntimeError('Qwen khong tra ve noi dung phan loai')
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        preview = content[:300]
+        raise RuntimeError(f'Qwen tra JSON sai dinh dang: {preview}') from exc
+
+
+def _validate_qwen_import_plan(plan, headers, models_map):
+    target_model_key = plan.get('target_model_key')
+    confidence = float(plan.get('confidence') or 0)
+    need_manual_confirm = bool(plan.get('need_manual_confirm', False))
+    header_mapping = plan.get('header_mapping') or {}
+
+    if need_manual_confirm:
+        return False, 'Qwen yeu cau admin xac nhan model thu cong'
+
+    if not target_model_key:
+        return False, 'Qwen khong xac dinh duoc model dich'
+
+    if target_model_key not in models_map:
+        return False, f'Model khong hop le: {target_model_key}'
+
+    min_confidence = getattr(settings, 'IMPORT_QWEN_MIN_CONFIDENCE', 0.65)
+    if confidence < min_confidence:
+        return False, f'Do tin cay thap: {confidence}'
+
+    if not isinstance(header_mapping, dict):
+        return False, 'header_mapping khong hop le'
+
+    model = models_map[target_model_key]
+    valid_fields = set()
+    for field in model._meta.fields:
+        valid_fields.add(field.name)
+        attname = getattr(field, 'attname', None)
+        if attname:
+            valid_fields.add(attname)
+
+    for system_field, csv_header in header_mapping.items():
+        if system_field not in valid_fields:
+            return False, f'Qwen map vao field khong ton tai: {system_field}'
+        if csv_header not in headers:
+            return False, f'Qwen map vao header khong co trong CSV: {csv_header}'
+
+    return True, 'Import plan hop le'
+
+
+def _classify_import_model_with_qwen(headers, sample_rows, target_model_key=None):
+    models_map = _get_all_models()
+
+    if target_model_key:
+        if target_model_key not in models_map:
+            return {
+                'ok': False,
+                'error': f'Model dich khong hop le: {target_model_key}',
+            }
+        model = models_map[target_model_key]
+        normalized_headers = {_clean_text_value(header).lower() for header in headers if _clean_text_value(header)}
+        direct_columns = _get_import_column_names(model)
+        if normalized_headers & direct_columns:
+            return {
+                'ok': True,
+                'source': 'manual',
+                'model_key': target_model_key,
+                'model': model,
+                'header_mapping': {},
+                'confidence': 1.0,
+                'warnings': [],
+            }
+
+        if not getattr(settings, 'LOCAL_LLM_IMPORT_ENABLED', False):
+            return {
+                'ok': True,
+                'source': 'manual',
+                'model_key': target_model_key,
+                'model': model,
+                'header_mapping': {},
+                'confidence': 1.0,
+                'warnings': [
+                    'Da giu model admin chon, nhung Qwen local dang tat nen khong ho tro mapping header nang cao.',
+                ],
+            }
+
+        try:
+            plan = _ask_qwen_import_classifier(
+                headers=headers,
+                sample_rows=sample_rows,
+                models_map={target_model_key: model},
+            )
+        except Exception as exc:
+            return {
+                'ok': False,
+                'error': str(exc),
+            }
+
+        if plan.get('target_model_key') != target_model_key:
+            return {
+                'ok': False,
+                'error': f'Qwen khong giu dung model admin da chon: {target_model_key}',
+                'qwen_plan': plan,
+            }
+
+        is_valid, message = _validate_qwen_import_plan(
+            plan=plan,
+            headers=headers,
+            models_map={target_model_key: model},
+        )
+        if not is_valid:
+            return {
+                'ok': False,
+                'error': message,
+                'qwen_plan': plan,
+            }
+
+        return {
+            'ok': True,
+            'source': 'manual_qwen_mapping',
+            'model_key': target_model_key,
+            'model': model,
+            'header_mapping': plan.get('header_mapping') or {},
+            'confidence': float(plan.get('confidence') or 0),
+            'warnings': plan.get('warnings') or [],
+            'reason': plan.get('reason', ''),
+        }
+
+    if not getattr(settings, 'LOCAL_LLM_IMPORT_ENABLED', False):
+        return {
+            'ok': False,
+            'error': 'Qwen local chua duoc bat trong settings',
+        }
+
+    try:
+        plan = _ask_qwen_import_classifier(
+            headers=headers,
+            sample_rows=sample_rows,
+            models_map=models_map,
+        )
+    except Exception as exc:
+        return {
+            'ok': False,
+            'error': str(exc),
+        }
+
+    is_valid, message = _validate_qwen_import_plan(
+        plan=plan,
+        headers=headers,
+        models_map=models_map,
+    )
+    if not is_valid:
+        return {
+            'ok': False,
+            'error': message,
+            'qwen_plan': plan,
+        }
+
+    model_key = plan['target_model_key']
+    return {
+        'ok': True,
+        'source': 'qwen_local',
+        'model_key': model_key,
+        'model': models_map[model_key],
+        'header_mapping': plan.get('header_mapping') or {},
+        'confidence': float(plan.get('confidence') or 0),
+        'warnings': plan.get('warnings') or [],
+        'reason': plan.get('reason', ''),
     }
 
 
@@ -654,6 +1004,10 @@ def _detect_model_from_headers(headers):
 def _import_csv_unified(uploaded_file, dry_run=False, target_model_key=None):
     report = {
         'detected_model': None,
+        'detected_model_key': None,
+        'classification_source': None,
+        'classification_confidence': None,
+        'header_mapping': {},
         'total_rows': 0,
         'ok_rows': 0,
         'created_rows': 0,
@@ -665,53 +1019,74 @@ def _import_csv_unified(uploaded_file, dry_run=False, target_model_key=None):
     }
 
     try:
-        content = uploaded_file.read().decode('utf-8-sig')
-    except UnicodeDecodeError:
-        content = uploaded_file.read().decode('latin-1')
+        csv_text, _detected_encoding = _decode_uploaded_csv(uploaded_file)
+    except ValueError as exc:
+        report['details'].append({'row': '-', 'status': 'error', 'message': str(exc)})
+        report['error_rows'] = 1
+        return report
 
-    reader = csv.DictReader(content.splitlines())
+    dialect = _detect_csv_dialect(csv_text)
+    reader = csv.DictReader(io.StringIO(csv_text), dialect=dialect)
     if not reader.fieldnames:
         report['details'].append({'row': '-', 'status': 'error', 'message': 'CSV khong co header.'})
         report['error_rows'] = 1
         return report
 
-    models_map = _get_all_models()
-    if target_model_key:
-        model = models_map.get(target_model_key)
-        if not model:
+    rows = list(reader)
+    headers = reader.fieldnames
+    sample_rows = rows[:10]
+
+    classification = _classify_import_model_with_qwen(
+        headers=headers,
+        sample_rows=sample_rows,
+        target_model_key=target_model_key,
+    )
+    if not classification['ok']:
+        report['error_rows'] = max(report.get('total_rows', 0), 1)
+        report['details'].append({
+            'row': '-',
+            'status': 'error',
+            'message': classification['error'],
+        })
+        if classification.get('qwen_plan'):
             report['details'].append({
                 'row': '-',
-                'status': 'error',
-                'message': f'Model dich khong hop le: {target_model_key}',
+                'status': 'warning',
+                'message': f"Qwen plan: {classification['qwen_plan']}",
             })
-            report['error_rows'] = 1
-            return report
-        model_name = target_model_key
-    else:
-        model_match, _, detect_meta = _detect_model_from_headers(reader.fieldnames)
-        if not model_match:
-            hint = ''
-            candidates = detect_meta.get('candidates', [])
-            if candidates:
-                top = ', '.join(item['model_name'] for item in candidates[:3])
-                hint = f' Goi y: {top}. Hay chon bang dich thu cong.'
-            report['details'].append({
-                'row': '-',
-                'status': 'error',
-                'message': f'Khong the xac dinh bang dich tu header: {", ".join(reader.fieldnames[:6])}.{hint}',
-            })
-            report['error_rows'] = 1
-            return report
-        model_name, model = model_match
+        return report
 
-    report['detected_model'] = model_name
+    model_key = classification['model_key']
+    model = classification['model']
+    header_mapping = classification.get('header_mapping') or {}
+    report['detected_model'] = model.__name__
+    report['detected_model_key'] = model_key
+    report['classification_source'] = classification.get('source')
+    report['classification_confidence'] = classification.get('confidence')
+    report['header_mapping'] = header_mapping
 
-    reader = csv.DictReader(content.splitlines())
+    if classification.get('reason'):
+        report['details'].append({
+            'row': '-',
+            'status': 'warning',
+            'message': f"Ly do phan loai: {classification['reason']}",
+        })
+    for warning in classification.get('warnings', []):
+        report['details'].append({
+            'row': '-',
+            'status': 'warning',
+            'message': str(warning),
+        })
+
     pk_name = model._meta.pk.name
 
-    for idx, raw_row in enumerate(reader, start=2):
+    for idx, raw_row in enumerate(rows, start=2):
         report['total_rows'] += 1
-        payload, warnings, errors = _csv_row_to_model_payload(model, raw_row)
+        payload, warnings, errors = _csv_row_to_model_payload(
+            model=model,
+            raw_row=raw_row,
+            header_mapping=header_mapping,
+        )
         pk_raw = raw_row.get(pk_name) or raw_row.get('id')
         pk_text = _clean_text_value(pk_raw)
 

@@ -46,7 +46,7 @@ try:
         print(f"\n5. Testing generate_content:")
         try:
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-1.5-flash',
                 contents=[genai_types.Content(role='user', parts=[genai_types.Part(text='Hello')])],
                 config=genai_types.GenerateContentConfig(max_output_tokens=100),
             )

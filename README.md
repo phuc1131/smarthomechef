@@ -320,19 +320,11 @@ python tools/seeding/seed_data_consolidated.py --patterns
 │   └── database/
 ├── check_database_status.py
 ├── check_tables.py
-├── cleanup_migration_history.py
-├── cleanup_migration_history2.py
 ├── create_superuser.py
 ├── fix_all_ids.py
 ├── reset_ids.py
-├── seed_vietnamese_foods.py
 ├── setup_google_oauth.py
-├── test_execution_summary.py
-├── test_recipe_gemini.py
-├── test_recipe_generation_mocked.py
-├── verify_ingredients_crawl.py
-├── verify_renumbering.py
-└── VIETNAMESE_FOODS_IMPORT.md
+└── manage.py
 ```
 
 ## Các Khu Vực Nên Quan Tâm Khi Phát Triển

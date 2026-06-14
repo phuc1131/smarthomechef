@@ -1,0 +1,142 @@
+{% extends "admin_panel/base.html" %}
+{% load static %}
+{% block title %}AI Quality Dashboard{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="{% static 'admin_panel/css/data_manager.css' %}">
+<style>
+  .ai-quality-chart-card {
+    padding: 0.8rem 0.95rem;
+  }
+
+  .ai-quality-chart-canvas {
+    height: 120px !important;
+  }
+
+  @media (max-width: 767px) {
+    .ai-quality-chart-canvas {
+      height: 100px !important;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-shell">
+  <div class="page-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <h2><i class="bi bi-cpu me-2" style="color:#0f4c5c"></i>AI quality dashboard</h2>
+      <p>Theo doi route local, Gemini, cache, latency, cost va user satisfaction.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/admin-panel/ai-quality/?days=7" class="btn btn-outline-secondary btn-sm">7 ngay</a>
+      <a href="/admin-panel/ai-quality/?days=14" class="btn btn-outline-secondary btn-sm">14 ngay</a>
+      <a href="/admin-panel/ai-quality/?days=30" class="btn btn-outline-secondary btn-sm">30 ngay</a>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Tong request</div><div class="value">{{ summary.total_requests }}</div></div></div>
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Ty le local</div><div class="value">{{ summary.local_rate }}%</div></div></div>
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Ty le Gemini</div><div class="value">{{ summary.gemini_rate }}%</div></div></div>
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Cache hit</div><div class="value">{{ summary.cache_hit_rate }}%</div></div></div>
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Latency TB</div><div class="value">{{ summary.avg_latency_ms }} ms</div></div></div>
+    <div class="col-12 col-md-4 col-xl-2"><div class="mini-stat"><div class="label">Success</div><div class="value">{{ summary.success_rate }}%</div></div></div>
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-md-4"><div class="mini-stat"><div class="label">Tong cost uoc tinh</div><div class="value">${{ summary.total_cost_usd|floatformat:4 }}</div></div></div>
+    <div class="col-12 col-md-4"><div class="mini-stat"><div class="label">Accepted rate</div><div class="value">{{ summary.accepted_rate }}%</div></div></div>
+    <div class="col-12 col-md-4"><div class="mini-stat"><div class="label">Helpful rate / rating</div><div class="value">{{ summary.helpful_rate }}% / {{ summary.avg_rating }}</div></div></div>
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-xl-7">
+      <div class="chart-card ai-quality-chart-card">
+        <div class="chart-title">Request volume theo route</div>
+        <canvas id="routeTrendChart" class="ai-quality-chart-canvas"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-xl-5">
+      <div class="chart-card ai-quality-chart-card">
+        <div class="chart-title">Latency trung binh theo ngay</div>
+        <canvas id="latencyChart" class="ai-quality-chart-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label">Bang tong hop provider</div>
+  <div class="chart-card">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 stats-table">
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>So request</th>
+            <th>Ty trong</th>
+            <th>Latency TB</th>
+            <th>Cost uoc tinh</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if provider_rows %}
+            {% for row in provider_rows %}
+            <tr>
+              <td>{{ row.provider }}</td>
+              <td>{{ row.total }}</td>
+              <td>{{ row.share }}%</td>
+              <td>{{ row.avg_latency_ms }} ms</td>
+              <td>${{ row.cost_usd|floatformat:4 }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" class="text-muted">Chua co telemetry AI.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const labels = {{ trend_labels|safe }};
+const localSeries = {{ trend_local|safe }};
+const geminiSeries = {{ trend_gemini|safe }};
+const cacheSeries = {{ trend_cache|safe }};
+const latencySeries = {{ trend_latency|safe }};
+
+new Chart(document.getElementById('routeTrendChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [
+      { label: 'Local', data: localSeries, backgroundColor: '#0f766e' },
+      { label: 'Gemini', data: geminiSeries, backgroundColor: '#ea580c' },
+      { label: 'Cache', data: cacheSeries, backgroundColor: '#2563eb' }
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false }
+});
+
+new Chart(document.getElementById('latencyChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Latency ms',
+        data: latencySeries,
+        borderColor: '#b45309',
+        backgroundColor: 'rgba(180,83,9,0.15)',
+        fill: true,
+        tension: 0.25
+      }
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false }
+});
+</script>
+{% endblock %}

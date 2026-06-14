@@ -154,7 +154,7 @@ Vai tro:
 
 Cau hinh:
 - GEMINI_API_KEY
-- GEMINI_MODEL (mac dinh: gemini-2.5-flash)
+- GEMINI_MODEL (mac dinh: gemini-1.5-flash)
 - GEMINI_BASE_URL (optional)
 - GEMINI_ENABLED
 
@@ -168,29 +168,97 @@ File lien quan:
 - app/services/external_apis.py
 - app/features/user_panel/views.py
 
-## 3.2 Intent Classification Engine (Rule-based + data labels)
+## 3.2 Intent Classification Engine (Bộ phân loại ý định đa tầng)
 
-Hien trang:
-- classify_intent() trong user_panel/views.py dang dung keyword heuristic.
-- Intent labels duoc luu vao MessageIntent.
+Hiện trạng trong hệ thống:
+Bộ phân loại ý định được triển khai theo mô hình kiến trúc đa tầng (Cascade Architecture) tại `AIOrchestratorService.classify_intent()` nhằm tối ưu hóa độ chính xác và tốc độ phản hồi:
 
-Cac nhom intent hien dien:
-- meal_plan
-- nutrition
-- general/fallback
-- Ngoai ra he thong du lieu co cac intent khac trong bang intent_patterns (health_goal, budget_query, ingredient_query, ...).
+### Chuỗi Fallback 3 Lớp (Three-Tier Fallback):
+1. **Lớp 1: Embedding Similarity (Phương pháp ưu tiên)**:
+   - Sử dụng hàm [classify_intent_by_embedding](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/semantic_intent_service.py#L62) trong [semantic_intent_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/semantic_intent_service.py).
+   - Biểu diễn văn bản dưới dạng TF vector (Term Frequency) và so sánh Cosine Similarity với các mẫu embeddings được lưu trong bảng `IntentEmbedding`.
+   - Nếu similarity vượt quá ngưỡng `threshold` (mặc định 0.30), hệ thống sẽ trả về intent tương ứng với độ tin cậy được chuẩn hóa.
+2. **Lớp 2: Trained Naive Bayes Model (Phương pháp thứ cấp)**:
+   - Sử dụng hàm [predict_intent](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/model_training_service.py#L341) trong [model_training_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/model_training_service.py).
+   - Tính log-probability của từng intent dựa trên thống kê tần suất từ (Laplace smoothing) đã học từ DB `Pattern` và `MessageIntent`.
+   - Chuẩn hóa log-scores thành confidence sử dụng Softmax. Trả về kết quả nếu confidence >= 0.35.
+3. **Lớp 3: Keyword & Rule Fallback (Lớp khẩn cấp)**:
+   - Gọi `local_classify_intent()` trong [intent_classifier.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/intent_classifier.py) để so khớp từ khóa chuẩn hóa không dấu.
+   - Nếu vẫn không khớp, gọi tiếp `_keyword_fallback()` dựa trên danh sách quy tắc tĩnh `INTENT_RULES` tại [AIOrchestratorService](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/ai_orchestrator_service.py#L37).
 
-Y nghia trainning:
-- Moi tin nhan user duoc gan intent la mot mau hoc co nhan.
-- Pattern va intent_patterns la tap mau train de nang cap bo phan classifier sau nay.
+Các nhóm intent chính hỗ trợ:
+- `meal_plan`: Lập thực đơn, lên kế hoạch ăn.
+- `recipe`: Công thức nấu ăn, hướng dẫn chế biến.
+- `recommendation`: Gợi ý món ăn dinh dưỡng/cá nhân hóa.
+- `nutrition`: Tra cứu dinh dưỡng, calo, protein, carb, fat.
+- `shopping`: Danh sách mua sắm, đi chợ.
+- `ingredient`: Tra cứu thành phần, nguyên liệu.
 
-File lien quan:
-- app/features/user_panel/views.py
-- apps/chat/models.py
-- apps/core_models/ai_learning_models.py
-- tools/seeding/seed_data_consolidated.py
+File liên quan:
+- [app/services/ai_orchestrator_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/ai_orchestrator_service.py)
+- [app/services/semantic_intent_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/semantic_intent_service.py)
+- [app/services/model_training_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/model_training_service.py)
+- [app/services/intent_classifier.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/intent_classifier.py)
 
-## 3.3 Chat Similarity Cache Model
+---
+
+## 3.3 Personalization Filter Engine (Bộ lọc cá nhân hóa)
+
+Hiện trạng trong hệ thống:
+Bộ lọc cá nhân hóa được triển khai tại [personalization_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/personalization_service.py) giúp tùy biến kết quả món ăn và thực đơn phù hợp nhất với hồ sơ bệnh lý, mục tiêu dinh dưỡng và sở thích của từng tài khoản người dùng thông qua quy trình 3 bước:
+
+### Quy trình 3 bước lọc và chấm điểm:
+1. **Bước 1: Hard Constraints (Lọc loại trừ bắt buộc - `filter_food_candidates`)**:
+   - **Từ khóa cần tránh (Avoided Keywords)**: Loại bỏ hoàn toàn các món ăn có tên khớp với từ khóa cần tránh của người dùng. Áp dụng chuẩn hóa tiếng Việt loại bỏ dấu (`_normalize_vietnamese_text`) kết hợp Jaccard token matching (ngưỡng 0.60) để tránh bỏ sót.
+   - **Ràng buộc bệnh lý (Disease Constraints)**: Nếu người dùng mắc bệnh tiểu đường, các món ăn không thân thiện với bệnh tiểu đường (`is_diabetes_friendly=False`) sẽ bị loại bỏ hoàn toàn.
+   - **Giới hạn ngân sách (Budget Limits)**: Loại bỏ các món ăn có chi phí ước tính vượt quá giới hạn ngân sách (`budget_limit`) của người dùng.
+2. **Bước 2: Soft Scoring (Chấm điểm tương thích - `score_food_for_user`)**:
+   - Điểm cơ sở ban đầu là `0.5`.
+   - **Độ mới (Recency)**: Trừ `0.12` nếu món ăn đã ăn gần đây (trong vòng 14 ngày) để tăng độ đa dạng.
+   - **Khớp truy vấn (Query Matching)**: Cộng tối đa `0.20` dựa trên độ tương đồng Jaccard giữa câu chat hiện tại của người dùng với tên/danh mục món ăn. Điều này giúp cá nhân hóa động theo nhu cầu tức thời.
+   - **Danh mục ưa thích (Preferred Categories)**: Cộng `0.18` nếu khớp với danh mục ưu thích trong hồ sơ.
+   - **Mục tiêu giảm cân (Weight Loss)**: Món ăn chứa <= 300 kcal được cộng `0.10`; món >= 600 kcal bị trừ `0.10`.
+   - **Bệnh gan nhiễm mỡ (Fatty Liver) / Chế độ ít béo (Low Fat)**: Cộng `0.10` cho món ít béo (fat <= 12g hoặc <= 15g) và cộng `0.05` cho món giàu chất xơ (fiber >= 3g).
+   - **Tiểu đường & Ngân sách**: Điều chỉnh điểm tương ứng (+0.15 cho món thân thiện tiểu đường; +0.08 nếu nằm trong ngân sách).
+   - **Phản hồi người dùng**: Tích hợp điểm trung bình đánh giá của người dùng từ lịch sử tương tác.
+   - Điểm số cuối cùng được giới hạn trong khoảng `[0.0, 1.0]`.
+3. **Bước 3: Ranking (Sắp xếp và Đề xuất - `rank_food_candidates`)**:
+   - Chạy hàm `compute_learning_score()` để kết hợp các đặc trưng (query similarity, preferred categories, diabetes status, budget fit, feedback rating, recency penalty) với các trọng số điều chỉnh tĩnh nhằm xếp hạng và lấy ra Top K món ăn tốt nhất.
+
+File liên quan:
+- [app/services/personalization_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/personalization_service.py)
+- [apps/users/personalization_models.py](file:///c:/vscode/smart-home-chef(ai%20agent)/apps/users/personalization_models.py)
+
+---
+
+## 3.4 Routing & Dispatch Decision Engine (Quyết định điều phối)
+
+Hiện trạng trong hệ thống:
+Bộ quyết định điều phối được triển khai tại [router_policy_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/router_policy_service.py) để lựa chọn thông minh giữa việc phục vụ dữ liệu/mô hình nội bộ (Local DB/Ollama) hoặc chuyển tiếp sang mô hình ngôn ngữ lớn ngoại vi (Gemini API Fallback).
+
+### Cơ chế quyết định điều phối (`decide_route`):
+Hệ thống sử dụng các ngưỡng tự động (confidence thresholds) để đưa ra quyết định tối ưu chi phí và tốc độ:
+1. **Ưu tiên Gemini (Explicit User Flag)**: Nếu cờ `call_gemini=True` được kích hoạt (người dùng yêu cầu trực tiếp), route sẽ là `'gemini'`.
+2. **Chọn Route Local (Local DB + Ollama/Qwen)**: 
+   - Điều kiện: Ý định nhận diện có độ tin cậy `intent_confidence >= 0.6` VÀ điểm số của món ăn ứng viên tốt nhất `top_score >= 0.5`.
+   - Hành vi: Hệ thống sử dụng kết quả món ăn trong cơ sở dữ liệu nội bộ và gọi mô hình ngôn ngữ lớn chạy cục bộ **Ollama/Qwen2.5:7b** để tổng hợp câu trả lời, giúp phản hồi nhanh và hoàn toàn miễn phí.
+3. **Chọn Route Gemini (Fallback)**:
+   - Điều kiện: `gemini_enabled=True` VÀ một trong các yếu tố sau xảy ra: `intent_confidence < 0.6` (không tự tin về ý định), hoặc `top_score < 0.5` (không có ứng viên món ăn cục bộ nào đủ tốt), hoặc không tìm thấy ứng viên nào.
+   - Hành vi: Chuyển tiếp yêu cầu cùng dữ liệu RAG bổ sung sang **Google Gemini API** (sử dụng model `gemini-2.0-flash`) để xử lý hội thoại tự do hoặc sinh công thức món ăn mới.
+4. **Fallback mặc định**: Nếu cả hai LLM không khả dụng hoặc bị tắt, hệ thống sẽ sử dụng `'local'` và trả lời từ DB nội bộ.
+
+### Chuỗi Ưu Tiên AI Backend:
+- **[PRIMARY] Ollama/Qwen2.5:7b**: Chạy local tại `http://localhost:11434/v1`. Được ưu tiên hàng đầu nhờ tính riêng tư dữ liệu và không mất phí.
+- **[FALLBACK] Google Gemini API**: Chỉ gọi khi route là `'gemini'` hoặc khi server Ollama gặp sự cố/không sẵn sàng.
+
+File liên quan:
+- [app/services/router_policy_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/router_policy_service.py)
+- [app/services/ai_orchestrator_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/ai_orchestrator_service.py)
+- [app/services/external_apis.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/external_apis.py)
+
+---
+
+## 3.5 Chat Similarity Cache Model
 
 Model logic:
 - Chuan hoa query bang tokenize_chat_text().
@@ -204,11 +272,11 @@ Loi ich:
 - Tao feedback signal thong qua usage_count.
 
 File lien quan:
-- app/services/chat_text_service.py
-- app/services/external_apis.py
-- apps/chat/models.py
+- [app/services/chat_text_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/chat_text_service.py)
+- [app/services/external_apis.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/external_apis.py)
+- [apps/chat/models.py](file:///c:/vscode/smart-home-chef(ai%20agent)/apps/chat/models.py)
 
-### 3.3.3 Thiết kế giải pháp tích hợp AI
+### 3.5.1 Thiết kế giải pháp tích hợp AI
 
 Mục tiêu: xác định một giải pháp tích hợp AI an toàn, có thể giám sát, và hiệu quả chi phí cho các use-case: chat response, ingredient parsing, recipe/meal-plan fallback.
 
@@ -276,7 +344,7 @@ flowchart LR
 ```
 
 
-## 3.4 Ingredient Parser Model
+## 3.6 Ingredient Parser Model
 
 Pipeline:
 1. Nhan text user.
@@ -289,9 +357,9 @@ Output co confidence + method:
 - method: gemini | fallback | error.
 
 File lien quan:
-- app/services/ingredient_parser_service.py
+- [app/services/ingredient_parser_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/ingredient_parser_service.py)
 
-## 3.5 Recipe Recommendation Model
+## 3.7 Recipe Recommendation Model
 
 Pipeline:
 1. Chuan hoa ingredient keywords.
@@ -306,9 +374,9 @@ Pipeline:
 Co bo check incompatibility matrix de canh bao ket hop nguyen lieu bat hop ly.
 
 File lien quan:
-- app/services/recipe_generator_service.py
+- [app/services/recipe_generator_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/recipe_generator_service.py)
 
-## 3.6 Recipe Variation Model
+## 3.8 Recipe Variation Model
 
 Muc tieu:
 - Xu ly truong hop thieu nguyen lieu.
@@ -320,9 +388,9 @@ Pipeline:
 4. Neu co Gemini thi sinh them bien tau sang tao.
 
 File lien quan:
-- app/services/recipe_variations_service.py
+- [app/services/recipe_variations_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/recipe_variations_service.py)
 
-## 3.7 Meal Plan Generator Model
+## 3.9 Meal Plan Generator Model
 
 Muc tieu:
 - Tao meal plan theo profile, benh ly, muc tieu va ngan sach.
@@ -336,7 +404,7 @@ Pipeline:
 6. tao MealPlan records.
 7. Neu DB khong du -> generate_meal_plan_with_gemini().
 
-### 3.7.1 Flowchart: Thuật toán phân tích dữ liệu & cá nhân hoá thực đơn
+### 3.9.1 Flowchart: Thuật toán phân tích dữ liệu & cá nhân hoá thực đơn
 
 ```mermaid
 flowchart LR
@@ -361,9 +429,9 @@ flowchart LR
 ```
 
 File lien quan:
-- app/services/meal_plan_generator_service.py
+- [app/services/meal_plan_generator_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/meal_plan_generator_service.py)
 
-## 3.8 Food Classifier Engine
+## 3.10 Food Classifier Engine
 
 Muc tieu:
 - Phan biet ingredient vs food dua tren keyword + profile dinh duong.
@@ -375,8 +443,8 @@ Heuristic:
 Phuc vu cho data cleaning va nutrition fill process.
 
 File lien quan:
-- app/services/food_classifier_service.py
-- app/services/nutrition_data_service.py
+- [app/services/food_classifier_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/food_classifier_service.py)
+- [app/services/nutrition_data_service.py](file:///c:/vscode/smart-home-chef(ai%20agent)/app/services/nutrition_data_service.py)
 
 ---
 
