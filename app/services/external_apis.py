@@ -233,6 +233,32 @@ def _ollama_qwen_generate_text(prompt, system_instruction=None, max_output_token
     result = response.choices[0].message.content if response.choices else ''
     return result.strip() if result else 'Không có phản hồi từ Qwen'
 
+def _ollama_qwen_generate_with_tools(messages, tools_list, max_tokens=4096):
+    """Call Qwen2.5:7b via Ollama with tools (function calling) support.
+
+    Sử dụng OpenAI-compatible API để gọi Ollama với tham số tools,
+    cho phép model có thể gọi function để thực thi các hành động
+    (ví dụ: tra cứu dinh dưỡng, tìm kiếm công thức, v.v.)
+
+    Args:
+        messages: List các dict message (role, content) cho conversation.
+        tools_list: List các dict tool/function definitions theo format OpenAI.
+        max_tokens: Số token tối đa cho response (mặc định 4096).
+
+    Returns:
+        response.choices[0].message object (có thể chứa tool_calls).
+    """
+    client = _get_ollama_client()
+    response = client.chat.completions.create(
+        model=OLLAMA_MODEL,
+        messages=messages,
+        tools=tools_list,
+        tool_choice="auto",
+        max_tokens=int(max_tokens),
+        temperature=0.0,
+    )
+    return response.choices[0].message
+
 
 def _local_llm_generate_text(prompt, system_instruction=None, max_output_tokens=2048):
     """Generate text with local Ollama/Qwen only. Return empty string on failure."""

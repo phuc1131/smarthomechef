@@ -34,24 +34,69 @@
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="stat-card text-center">
-      <div class="icon mx-auto mb-2 nutrition-icon-protein"><i class="bi bi-droplet-half"></i></div>
-      <div class="value nutrition-value-protein">{{ total_pro }}g</div>
-      <div class="label">Protein</div>
+    <div class="stat-card h-100">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="flex-grow-1">
+          <div class="value nutrition-value-protein">{{ protein_consumed|default:total_pro }}g</div>
+          <div class="label">Protein</div>
+          <div class="mt-2 small text-muted">
+            Đã ăn: {{ protein_consumed|default:total_pro|floatformat:1 }}g / {{ protein_target|floatformat:0 }}g
+          </div>
+          <div class="progress mt-3 dashboard-progress">
+            {% if protein_target %}
+              {% widthratio protein_consumed|default:total_pro protein_target 100 as protein_pct_raw %}
+              <div class="progress-bar bg-success" style="width:{% if protein_pct_raw > 100 %}100{% else %}{{ protein_pct_raw }}{% endif %}%"></div>
+            {% else %}
+              <div class="progress-bar bg-success" style="width:0%"></div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="icon nutrition-icon-protein"><i class="bi bi-droplet-half"></i></div>
+      </div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="stat-card text-center">
-      <div class="icon mx-auto mb-2 nutrition-icon-carbs"><i class="bi bi-hexagon"></i></div>
-      <div class="value nutrition-value-carbs">{{ total_car }}g</div>
-      <div class="label">Carbohydrate</div>
+    <div class="stat-card h-100">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="flex-grow-1">
+          <div class="value nutrition-value-carbs">{{ carbs_consumed|default:total_car }}g</div>
+          <div class="label">Carbohydrate</div>
+          <div class="mt-2 small text-muted">
+            Đã ăn: {{ carbs_consumed|default:total_car|floatformat:1 }}g / {{ carbs_target|floatformat:0 }}g
+          </div>
+          <div class="progress mt-3 dashboard-progress">
+            {% if carbs_target %}
+              {% widthratio carbs_consumed|default:total_car carbs_target 100 as carbs_pct_raw %}
+              <div class="progress-bar bg-success" style="width:{% if carbs_pct_raw > 100 %}100{% else %}{{ carbs_pct_raw }}{% endif %}%"></div>
+            {% else %}
+              <div class="progress-bar bg-success" style="width:0%"></div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="icon nutrition-icon-carbs"><i class="bi bi-hexagon"></i></div>
+      </div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="stat-card text-center">
-      <div class="icon mx-auto mb-2 nutrition-icon-fat"><i class="bi bi-gem"></i></div>
-      <div class="value nutrition-value-fat">{{ total_fat }}g</div>
-      <div class="label">Chất béo</div>
+    <div class="stat-card h-100">
+      <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="flex-grow-1">
+          <div class="value nutrition-value-fat">{{ fat_consumed|default:total_fat }}g</div>
+          <div class="label">Chất béo</div>
+          <div class="mt-2 small text-muted">
+            Đã ăn: {{ fat_consumed|default:total_fat|floatformat:1 }}g / {{ fat_target|floatformat:0 }}g
+          </div>
+          <div class="progress mt-3 dashboard-progress">
+            {% if fat_target %}
+              {% widthratio fat_consumed|default:total_fat fat_target 100 as fat_pct_raw %}
+              <div class="progress-bar bg-success" style="width:{% if fat_pct_raw > 100 %}100{% else %}{{ fat_pct_raw }}{% endif %}%"></div>
+            {% else %}
+              <div class="progress-bar bg-success" style="width:0%"></div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="icon nutrition-icon-fat"><i class="bi bi-gem"></i></div>
+      </div>
     </div>
   </div>
 </div>

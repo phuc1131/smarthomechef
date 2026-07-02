@@ -11,7 +11,9 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
+
+from django.db.models import Q
 
 from apps.nutrition.models import Food, FoodIngredient, Ingredient, IngredientAlias, IngredientPrice, UnitConversion
 from apps.users.models import UserDisease, UserGoal, UserPreferenceProfile, UserProfile
@@ -48,6 +50,14 @@ def _to_decimal(value) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         return Decimal('0')
+
+
+def _lookup_key(text: str) -> str:
+    return _normalize_text(text).replace(' ', '_')
+
+
+def _lookup_tokens(text: str) -> List[str]:
+    return [token for token in _normalize_text(text).replace('_', ' ').split() if token]
 
 
 def _split_goal_value(value: str) -> List[str]:
@@ -99,19 +109,23 @@ def classify_food_price_intent(text: str, account=None) -> str:
     if not normalized:
         return UNKNOWN
 
-    price_keywords = ['gia', 'bao nhieu tien', 'chi phi', 'ton bao nhieu', 'cost', 'price', 'budget', 'ngan sach', 'mua duoc']
+    price_keywords = ['gia', 'bao nhieu tien', 'bao nhieu', 'chi phi', 'ton bao nhieu', 'cost', 'price', 'budget', 'ngan sach', 'mua duoc']
     meal_keywords = ['thuc don', 'menu', 'lap thuc don', 'an gi', 'bua sang', 'bua trua', 'bua toi', '7 ngay', 'tuan', 'ngay']
+    disease_keywords = ['cam lanh', 'om', 'benh', 'sot', 'ho', 'met', 'khoe']
     goal_context = _build_account_goal_context(account)
     dynamic_goal_terms = goal_context['terms']
 
-    has_price = any(keyword in normalized for keyword in price_keywords)
-    has_meal = any(keyword in normalized for keyword in meal_keywords)
     has_budget_amount = bool(re.search(r'\d+(?:[.,]\d+)?\s*(k|nghin|ngan|trieu|vnd|d)(?:\s*/\s*ngay)?', normalized))
+    has_price = any(re.search(rf'\b{keyword}\b', normalized) for keyword in price_keywords) or has_budget_amount
+    if has_price and re.search(r'\b(gia|price|cost)\b', normalized) and len(normalized.split()) <= 4:
+        return PRICE_QUERY
+    has_meal = any(re.search(rf'\b{keyword}\b', normalized) for keyword in meal_keywords)
     has_quantity_list = bool(re.search(rf'\d+(?:[.,]\d+)?\s*(?:{_UNIT_PATTERN})\s+[a-z0-9]', normalized))
     has_recipe_words = any(keyword in normalized for keyword in ['mon', 'nau', 'khau phan', 'cho 2 nguoi', 'cho 4 nguoi'])
     has_recipe_food_name = normalized.startswith('mon ') or ' mon ' in normalized
     has_shopping = 'mua duoc nhung gi' in normalized or ('mua duoc' in normalized and has_budget_amount)
-    has_dynamic_goal_match = any(term in normalized for term in dynamic_goal_terms)
+    has_dynamic_goal_match = any(re.search(rf'\b{term}\b', normalized) for term in dynamic_goal_terms)
+    has_disease = any(re.search(rf'\b{keyword}\b', normalized) for keyword in disease_keywords)
 
     if has_price and has_meal:
         return BUDGET_MEAL_PLAN
@@ -121,10 +135,10 @@ def classify_food_price_intent(text: str, account=None) -> str:
         return INGREDIENT_COST_QUERY
     if has_price and (has_recipe_words or has_recipe_food_name):
         return RECIPE_COST_QUERY
+    if has_dynamic_goal_match or has_disease:
+        return NUTRITION_ADVICE
     if has_meal:
         return GENERAL_MEAL_PLAN
-    if has_dynamic_goal_match:
-        return NUTRITION_ADVICE
     if has_price:
         return PRICE_QUERY
     return UNKNOWN
@@ -138,7 +152,7 @@ def _clean_query_tokens(text: str) -> str:
         'cho', 'nguoi', 'khoang', 'thuc don', 'lap', 'menu', 'duoi', 'tren',
     ]
     for token in noise:
-        normalized = normalized.replace(token, ' ')
+        normalized = re.sub(rf'\b{token}\b', ' ', normalized)
     normalized = re.sub(r'\d+(?:[.,]\d+)?\s*(?:k|nghin|ngan|trieu|vnd|d|' + _UNIT_PATTERN + r')', ' ', normalized)
     normalized = re.sub(r'\s+', ' ', normalized)
     return normalized.strip(' ,.-')
@@ -149,21 +163,67 @@ def _find_ingredient_candidates(name: str, limit: int = 5) -> List[Ingredient]:
     if not normalized:
         return []
 
+    lookup_key = _lookup_key(name)
+    lookup_variants = list(dict.fromkeys(
+        variant for variant in [
+            normalized,
+            lookup_key,
+            normalized.replace('thit ', '').strip() if normalized.startswith('thit ') else '',
+            lookup_key.replace('thit_', '').strip('_') if lookup_key.startswith('thit_') else '',
+        ]
+        if variant
+    ))
+
     direct = list(
-        Ingredient.objects.filter(is_deleted=False, normalized_name=normalized).order_by('name')[:limit]
+        Ingredient.objects.filter(is_deleted=False).filter(
+            Q(normalized_name__in=lookup_variants)
+            | Q(normalized_name__icontains=lookup_key)
+            | Q(normalized_name__icontains=normalized)
+        ).order_by('name')[:limit]
     )
     if direct:
         return direct
 
     exact = list(
-        Ingredient.objects.filter(is_deleted=False, name__iexact=name.strip()).order_by('name')[:limit]
+        Ingredient.objects.filter(is_deleted=False).filter(
+            Q(name__iexact=name.strip())
+            | Q(name__iexact=normalized)
+            | Q(name__icontains=name.strip())
+            | Q(name__icontains=normalized)
+        ).order_by('name')[:limit]
     )
     if exact:
         return exact
 
+    alias_matches = []
     try:
         alias_rows = list(
-            IngredientAlias.objects.filter(alias__iexact=name.strip()).select_related('ingredient')[:limit]
+            IngredientAlias.objects.filter(
+                is_deleted=False,
+            ).filter(
+                Q(alias__iexact=name.strip())
+                | Q(alias__iexact=normalized)
+                | Q(alias__icontains=name.strip())
+                | Q(alias__icontains=normalized)
+                | Q(alias__iexact=lookup_key)
+            ).select_related('ingredient')[:limit]
+        )
+    except Exception:
+        alias_rows = []
+    for row in alias_rows:
+        if row.ingredient and not row.ingredient.is_deleted:
+            alias_matches.append(row.ingredient)
+    if alias_matches:
+        return alias_matches
+
+    try:
+        alias_rows = list(
+            IngredientAlias.objects.filter(
+                Q(alias__iexact=normalized)
+                | Q(alias__iexact=lookup_key)
+                | Q(alias__icontains=normalized)
+                | Q(alias__icontains=lookup_key)
+            ).select_related('ingredient')[:limit]
         )
     except Exception:
         alias_rows = []
@@ -171,21 +231,33 @@ def _find_ingredient_candidates(name: str, limit: int = 5) -> List[Ingredient]:
         return [row.ingredient for row in alias_rows if row.ingredient and not row.ingredient.is_deleted]
 
     contains = list(
-        Ingredient.objects.filter(is_deleted=False, name__icontains=name.strip()).order_by('name')[:limit]
+        Ingredient.objects.filter(is_deleted=False).filter(
+            Q(name__icontains=name.strip())
+            | Q(name__icontains=normalized)
+            | Q(normalized_name__icontains=lookup_key)
+            | Q(normalized_name__icontains=normalized)
+        ).order_by('name')[:limit]
     )
     if contains:
         return contains
 
     token_candidates = []
+    query_tokens = set(_lookup_tokens(name))
     for ingredient in Ingredient.objects.filter(is_deleted=False).only('id', 'name', 'normalized_name'):
-        ing_name = ingredient.normalized_name or _normalize_text(ingredient.name)
+        ing_name = (ingredient.normalized_name or _normalize_text(ingredient.name)).replace('_', ' ')
+        ing_tokens = set(_lookup_tokens(ing_name))
         score = SequenceMatcher(None, normalized, ing_name).ratio()
-        if normalized in ing_name or ing_name in normalized:
+        overlap = len(query_tokens & ing_tokens)
+        if query_tokens and overlap == len(query_tokens):
+            score += 0.45
+        elif overlap:
+            score += 0.12 * overlap
+        if normalized in ing_name or ing_name in normalized or lookup_key in (ingredient.normalized_name or ''):
             score += 0.25
-        if score >= 0.45:
-            token_candidates.append((score, ingredient))
-    token_candidates.sort(key=lambda item: (-item[0], item[1].name))
-    return [ingredient for _, ingredient in token_candidates[:limit]]
+        if score >= 0.45 or overlap:
+            token_candidates.append((overlap, score, ingredient))
+    token_candidates.sort(key=lambda item: (-item[0], -item[1], item[2].name))
+    return [ingredient for _, _, ingredient in token_candidates[:limit]]
 
 
 def find_best_ingredient_match(name: str) -> Optional[Ingredient]:
@@ -203,7 +275,7 @@ def get_latest_ingredient_price(ingredient: Ingredient) -> Optional[IngredientPr
     return IngredientPrice.objects.filter(ingredient=ingredient).order_by('-updated_at', '-id').first()
 
 
-def _lookup_db_conversion_factor(ingredient: Ingredient, from_unit: str) -> Optional[Decimal]:
+def _lookup_db_conversion_factor(ingredient: Optional[Ingredient], from_unit: str) -> Optional[Decimal]:
     if not ingredient or not from_unit:
         return None
     try:
@@ -255,7 +327,8 @@ def _price_cost_for_quantity(ingredient: Ingredient, quantity: Decimal, request_
     if not price_obj or price_obj.price_per_unit is None:
         return None
 
-    converted_quantity = _quantity_in_price_unit(quantity, request_unit, price_obj.unit_type, ingredient=ingredient)
+    ingredient_obj = cast(Ingredient, ingredient)
+    converted_quantity = _quantity_in_price_unit(quantity, request_unit, price_obj.unit_type, ingredient=ingredient_obj)
     if converted_quantity is None:
         return None
 
@@ -329,7 +402,7 @@ def get_ingredient_prices(ingredient_names: List[str], limit: int = 10) -> Dict:
 
         found.append({
             'ingredient_name': ingredient.name,
-            'ingredient_id': ingredient.id,
+            'ingredient_id': getattr(ingredient, 'pk', None),
             'price_per_unit': float(price_obj.price_per_unit),
             'unit_type': price_obj.unit_type,
             'updated_at': price_obj.updated_at.isoformat() if price_obj.updated_at else None,
@@ -597,7 +670,7 @@ def get_all_ingredient_prices() -> List[Dict]:
     for price_obj in IngredientPrice.objects.select_related('ingredient').all():
         prices.append({
             'ingredient_name': price_obj.ingredient.name,
-            'ingredient_id': price_obj.ingredient.id,
+            'ingredient_id': getattr(price_obj.ingredient, 'pk', None),
             'price_per_unit': float(price_obj.price_per_unit),
             'unit_type': price_obj.unit_type,
             'updated_at': price_obj.updated_at.isoformat() if price_obj.updated_at else None,

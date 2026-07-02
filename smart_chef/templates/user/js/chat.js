@@ -119,6 +119,13 @@ document.getElementById('chat-form').addEventListener('submit', async (e) => {
           assistantText += `\n\n[Đi tới trang Thực đơn](${data.meal_plan_url})`;
         }
         renderMsg('assistant', assistantText);
+
+        if (data.meal_plan_created && data.meal_plan_url) {
+          window.setTimeout(() => {
+            window.location.assign(data.meal_plan_url);
+          }, 250);
+        }
+
         handled = true;
         break;
       } catch (err) {

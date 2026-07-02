@@ -1,7 +1,6 @@
 import re
 import time
 import unicodedata
-from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 import requests
@@ -14,11 +13,6 @@ from services.external_apis import fetch_spoonacular_food, get_spoonacular_last_
 from apps.nutrition.models import Food, Ingredient, FoodCategory, IngredientPrice, IngredientNutrition
 from app.services.nutrition_data_service import NutritionDataFiller
 from app.config import WINMART_TIMEOUT, WINMART_RETRIES
-
-try:
-    import schedule
-except ImportError:
-    schedule = None
 
 
 class Command(BaseCommand):
@@ -160,8 +154,18 @@ class Command(BaseCommand):
         def to_float(raw) -> Optional[float]:
             if raw in (None, '', 0, '0'):
                 return None
+            if isinstance(raw, (int, float)):
+                return float(raw)
+            
             s = str(raw)
             s = s.replace('₫', '').replace('đ', '').replace('VND', '').strip()
+            
+            # Handle strings that look like floats from JSON (e.g. "75000.0" or "75000.00")
+            if s.endswith('.00'):
+                s = s[:-3]
+            elif s.endswith('.0'):
+                s = s[:-2]
+                
             digits = re.sub(r'[^0-9]', '', s)
             if not digits:
                 return None
@@ -419,8 +423,8 @@ class Command(BaseCommand):
 
         if canonical:
             # UPDATE: overwrite every field with the freshest data
-            canonical.name        = base_name          # keep casing from latest crawl
-            canonical.category_id = category_id
+            canonical.name = base_name  # keep casing from latest crawl
+            setattr(canonical, 'category_id', category_id)
             for field_name, field_value in fields.items():
                 setattr(canonical, field_name, field_value)
             canonical.save()
@@ -490,12 +494,13 @@ class Command(BaseCommand):
                 SELECT COUNT(*) FROM ingredient_prices ip
                 WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ip.ingredient_id)
             """)
-            orphan_prices = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            orphan_prices = row[0] if row else 0
             
             if orphan_prices > 0:
                 cursor.execute("""
-                    DELETE FROM ingredient_prices
-                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ingredient_id)
+                    DELETE FROM ingredient_prices ip
+                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ip.ingredient_id)
                 """)
                 self.stdout.write(self.style.WARNING(f'  Removed {orphan_prices} orphan ingredient_prices'))
             
@@ -503,18 +508,20 @@ class Command(BaseCommand):
                 SELECT COUNT(*) FROM ingredient_nutrition in_nut
                 WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = in_nut.ingredient_id)
             """)
-            orphan_nutrition = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            orphan_nutrition = row[0] if row else 0
             
             if orphan_nutrition > 0:
                 cursor.execute("""
-                    DELETE FROM ingredient_nutrition
-                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ingredient_id)
+                    DELETE FROM ingredient_nutrition in_nut
+                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = in_nut.ingredient_id)
                 """)
                 self.stdout.write(self.style.WARNING(f'  Removed {orphan_nutrition} orphan ingredient_nutrition'))
             
             # Bước 2: Xóa toàn bộ dữ liệu ingredients và related tables
             cursor.execute("SELECT COUNT(*) FROM ingredients")
-            old_count = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            old_count = row[0] if row else 0
             
             if old_count > 0:
                 # Delete related records trước (orders matter for FK constraints)
@@ -561,8 +568,8 @@ class Command(BaseCommand):
             canonical = duplicates[0]
             # Re-point any related rows to the keeper before deleting duplicates
             for dup in duplicates[1:]:
-                IngredientNutrition.objects.filter(ingredient_id=dup.id).delete()
-                IngredientPrice.objects.filter(ingredient_id=dup.id).delete()
+                IngredientNutrition.objects.filter(ingredient_id=dup.pk).delete()
+                IngredientPrice.objects.filter(ingredient_id=dup.pk).delete()
                 dup.delete()
         elif len(duplicates) == 1:
             canonical = duplicates[0]
@@ -585,7 +592,7 @@ class Command(BaseCommand):
 
         # Always overwrite nutrition (update_or_create → full overwrite via defaults)
         IngredientNutrition.objects.update_or_create(
-            ingredient_id=canonical.id,
+            ingredient_id=canonical.pk,
             defaults={
                 'calories': Decimal(str(nutrition.get('calories', 0))),
                 'protein':  Decimal(str(nutrition.get('protein',  0))),
@@ -599,7 +606,7 @@ class Command(BaseCommand):
         if price:
             unit_key = unit or 'UNIT'
             IngredientPrice.objects.update_or_create(
-                ingredient_id=canonical.id,
+                ingredient_id=canonical.pk,
                 unit_type=unit_key,
                 defaults={'price_per_unit': Decimal(str(price))}
             )
@@ -629,7 +636,7 @@ class Command(BaseCommand):
             for seq, old_id in enumerate(rows, start=1):
                 shadow_id = shadow_base + seq
                 cur.execute("UPDATE ingredients            SET id             = %s WHERE id             = %s", [shadow_id, old_id])
-                cur.execute("UPDATE ingredient_nutritions  SET ingredient_id  = %s WHERE ingredient_id  = %s", [shadow_id, old_id])
+                cur.execute("UPDATE ingredient_nutrition  SET ingredient_id  = %s WHERE ingredient_id  = %s", [shadow_id, old_id])
                 cur.execute("UPDATE ingredient_prices      SET ingredient_id  = %s WHERE ingredient_id  = %s", [shadow_id, old_id])
 
         # Phase 2 – move to final sequential IDs
@@ -637,7 +644,7 @@ class Command(BaseCommand):
             for seq in range(1, len(rows) + 1):
                 shadow_id = shadow_base + seq
                 cur.execute("UPDATE ingredients            SET id             = %s WHERE id             = %s", [seq, shadow_id])
-                cur.execute("UPDATE ingredient_nutritions  SET ingredient_id  = %s WHERE ingredient_id  = %s", [seq, shadow_id])
+                cur.execute("UPDATE ingredient_nutrition  SET ingredient_id  = %s WHERE ingredient_id  = %s", [seq, shadow_id])
                 cur.execute("UPDATE ingredient_prices      SET ingredient_id  = %s WHERE ingredient_id  = %s", [seq, shadow_id])
 
         # Reset the sequence so future inserts continue correctly
@@ -664,11 +671,12 @@ class Command(BaseCommand):
                 SELECT COUNT(*) FROM ingredient_prices ip
                 WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ip.ingredient_id)
             """)
-            orphan_prices = cur.fetchone()[0]
+            row = cur.fetchone()
+            orphan_prices = row[0] if row else 0
             if orphan_prices > 0:
                 cur.execute("""
-                    DELETE FROM ingredient_prices
-                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ingredient_id)
+                    DELETE FROM ingredient_prices ip
+                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ip.ingredient_id)
                 """)
                 self.stdout.write(self.style.WARNING(f'  Removed {orphan_prices} orphan ingredient_prices'))
             
@@ -677,11 +685,12 @@ class Command(BaseCommand):
                 SELECT COUNT(*) FROM ingredient_nutrition in_nut
                 WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = in_nut.ingredient_id)
             """)
-            orphan_nutrition = cur.fetchone()[0]
+            row = cur.fetchone()
+            orphan_nutrition = row[0] if row else 0
             if orphan_nutrition > 0:
                 cur.execute("""
-                    DELETE FROM ingredient_nutrition
-                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = ingredient_id)
+                    DELETE FROM ingredient_nutrition in_nut
+                    WHERE NOT EXISTS (SELECT 1 FROM ingredients i WHERE i.id = in_nut.ingredient_id)
                 """)
                 self.stdout.write(self.style.WARNING(f'  Removed {orphan_nutrition} orphan ingredient_nutrition'))
             
@@ -713,7 +722,8 @@ class Command(BaseCommand):
                 WHERE NOT EXISTS (SELECT 1 FROM ingredient_prices ip WHERE ip.ingredient_id = i.id)
                   AND NOT EXISTS (SELECT 1 FROM ingredient_nutrition in_n WHERE in_n.ingredient_id = i.id)
             """)
-            missing_data = cur.fetchone()[0]
+            row = cur.fetchone()
+            missing_data = row[0] if row else 0
             if missing_data > 0:
                 self.stdout.write(self.style.WARNING(f'  {missing_data} ingredients missing both price & nutrition data'))
             
@@ -900,7 +910,7 @@ class Command(BaseCommand):
                 )
 
                 if food_obj and self._needs_nutrition_completion(item.get('nutrition') or {}):
-                    NutritionDataFiller.fill_missing_nutrition(food_obj, use_spoonacular=True, use_gemini=True)
+                    NutritionDataFiller.fill_missing_nutrition(food_obj, use_spoonacular=True, use_gemini=False)
 
                 if created:
                     foods_created += 1
@@ -924,7 +934,7 @@ class Command(BaseCommand):
                     NutritionDataFiller.fill_missing_ingredient_nutrition(
                         ingredient_obj,
                         use_spoonacular=True,
-                        use_gemini=True,
+                        use_gemini=False,
                     )
 
                 if created:
@@ -964,13 +974,15 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('OK Scheduled crawl complete'))
 
     def run_scheduler(self, limit_categories=None, limit_items=None):
-        if schedule is None:
+        try:
+            import schedule as schedule_mod  # pyright: ignore[reportMissingImports]
+        except ImportError:
             raise RuntimeError('schedule package chua duoc cai dat; khong the chay --schedule')
 
-        schedule.every().day.at('00:00').do(
+        schedule_mod.every().day.at('00:00').do(
             self.execute_crawl, limit_categories=limit_categories, limit_items=limit_items
         )
-        schedule.every().day.at('12:00').do(
+        schedule_mod.every().day.at('12:00').do(
             self.execute_crawl, limit_categories=limit_categories, limit_items=limit_items
         )
 
@@ -980,7 +992,7 @@ class Command(BaseCommand):
 
         try:
             while True:
-                schedule.run_pending()
+                schedule_mod.run_pending()
                 time.sleep(30)
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING('\nCrawler scheduler stopped by user.'))

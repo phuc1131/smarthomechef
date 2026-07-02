@@ -307,6 +307,7 @@ class NutritionLog(models.Model):
     total_protein = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     total_carbs = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     total_fat = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    from_meal_plan = models.BooleanField(default=False, help_text="Được tạo tự động từ kế hoạch thực đơn")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

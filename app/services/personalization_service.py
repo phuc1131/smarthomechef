@@ -275,7 +275,7 @@ def score_food_for_user(account, food: Food, user_query: Optional[str] = None) -
             # scale contribution (max +0.20 when sim == 1.0)
             boost = 0.2 * sim
             score += boost
-            reasons.append(f'Khớp truy vấn người dùng (sim={round(sim,2)})')
+            reasons.append('Phù hợp với tìm kiếm')
 
     # CẢI THIỆN: dùng token matching cho preferred categories
     preferred_categories = _normalize_tokens(getattr(preference_profile, 'preferred_categories', None) or [])

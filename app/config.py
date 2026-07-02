@@ -82,6 +82,9 @@ OLLAMA_MODEL = _get_env('OLLAMA_MODEL', default='qwen2.5:7b')
 OLLAMA_API_KEY = _get_env('OLLAMA_API_KEY', default='ollama')
 OLLAMA_ENABLED = _get_env_bool('OLLAMA_ENABLED', default=True)  # Enable by default if Ollama server is running
 
+# Raw Ollama URL for direct /api/chat (non-OpenAI-compatible)
+OLLAMA_URL = _get_env('OLLAMA_URL', default='http://localhost:11434')
+
 # How many times to retry Gemini calls when rate limited or transient errors occur
 GEMINI_RETRIES = int(_get_env('GEMINI_RETRIES', default='3'))
 GEMINI_ESTIMATED_COST_USD = float(_get_env('GEMINI_ESTIMATED_COST_USD', default='0.0'))
@@ -123,6 +126,23 @@ SPOONACULAR_ENABLED = bool(SPOONACULAR_API_KEY and SPOONACULAR_API_KEY.strip() a
 SPOONACULAR_TIMEOUT = int(_get_env('SPOONACULAR_TIMEOUT', default='5'))
 SPOONACULAR_RETRIES = int(_get_env('SPOONACULAR_RETRIES', default='3'))
 
+
+
+
+# ============================================================================
+# API-NINJAS CONFIG
+# ============================================================================
+
+API_NINJAS_API_KEY = _get_env('API_NINJAS_KEY', required=False)
+API_NINJAS_BASE_URL = _get_env(
+    'API_NINJAS_BASE_URL',
+    default='https://api.api-ninjas.com',
+).rstrip('/')
+API_NINJAS_ENABLED = bool(
+    API_NINJAS_API_KEY
+    and API_NINJAS_API_KEY.strip()
+    and API_NINJAS_API_KEY != 'dummy'
+)
 
 # ============================================================================
 # WINMART (CRAWLER) CONFIG

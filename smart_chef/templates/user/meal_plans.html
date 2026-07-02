@@ -41,14 +41,20 @@
         {% if d == 0 %}
         <div class="calendar-day other-month"></div>
         {% else %}
-        {% with date_key=year|stringformat:"04d" %}
         <div class="calendar-day {% if d == today.day and month == today.month and year == today.year %}today{% endif %}"
-             onclick="openAddForDate('{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}')"
-             class="meal-plan-cell">
-          <div class="calendar-day-num">{{ d }}</div>
-          <div id="day-{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}"></div>
+             class="meal-plan-cell"
+             data-date="{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}">
+          <div class="calendar-day-num">
+            <span>{{ d }}</span>
+            <span class="follow-checkmark" data-date="{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}"
+                  onclick="event.stopPropagation(); toggleFollowDay('{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}')"
+                  title="Theo dõi thực đơn">
+              <i class="bi bi-check-circle-fill text-success"></i>
+            </span>
+          </div>
+          <div id="day-{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}"
+               onclick="openAddForDate('{{ year }}-{{ month|stringformat:"02d" }}-{{ d|stringformat:"02d" }}')"></div>
         </div>
-        {% endwith %}
         {% endif %}
       </div>
       {% endfor %}
@@ -79,17 +85,18 @@
         <div class="mb-3">
           <label class="form-label">Tìm món ăn</label>
           <input type="text" class="form-control mb-1" placeholder="Gõ để tìm..." id="plan-food-search" oninput="filterPlanFoods(this.value)">
-          <select class="form-select" id="plan-food" size="5">
+          <select class="form-select" id="plan-food" size="5" onchange="updatePlanCalPreview()">
             {% for food in foods %}
-            <option value="{{ food.id }}">{{ food.name }} ({{ food.calories|floatformat:0 }} kcal)</option>
+            <option value="{{ food.id }}" data-cal="{{ food.calories|floatformat:2 }}" data-serving="{{ food.serving_size }}">{{ food.name }} - {{ food.calories|floatformat:0 }} kcal</option>
             {% endfor %}
           </select>
         </div>
         <div class="mb-3">
           <label class="form-label">Số khẩu phần</label>
-          <input type="number" class="form-control" id="plan-servings" value="1" min="0.5" step="0.5">
+          <input type="number" class="form-control" id="plan-servings" value="1" min="0.5" step="0.5" oninput="updatePlanCalPreview()">
         </div>
-        <div class="mb-3">
+        <div id="plan-cal-preview" class="alert alert-success py-2 mb-0 nutrition-cal-preview"></div>
+<div class="mb-3">
           <label class="form-label">Ghi chú</label>
           <input type="text" class="form-control" id="plan-notes" placeholder="Tuỳ chọn...">
         </div>
@@ -103,6 +110,7 @@
 </div>
 {{ plans_by_date_data|json_script:"plans-by-date-data" }}
 {{ meal_type_colors|json_script:"meal-type-colors-data" }}
+{{ followed_days|json_script:"followed-days-data" }}
 {% endblock %}
 
 {% block scripts %}

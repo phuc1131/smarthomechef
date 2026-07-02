@@ -66,6 +66,11 @@ def nutrition(request):
 
     profile = get_profile(request)
     calorie_target = profile.daily_calorie_target if profile else 2000
+    calorie_target_value = int(calorie_target or 2000)
+    weight = float(profile.weight or 0) if profile else 0
+    protein_target = max(50, int(round(weight * 1.6))) if weight > 0 else max(50, int(round(calorie_target_value * 0.25 / 4)))
+    carbs_target = max(120, int(round(calorie_target_value * 0.50 / 4)))
+    fat_target = max(35, int(round(calorie_target_value * 0.25 / 9)))
     foods = Food.objects.all().order_by('name')
 
     context = {
@@ -75,8 +80,14 @@ def nutrition(request):
         'total_pro': round(total_pro, 1),
         'total_car': round(total_car, 1),
         'total_fat': round(total_fat_v, 1),
-        'calorie_target': calorie_target or 2000,
-        'calorie_pct': min(100, int(total_cal / (calorie_target or 2000) * 100)),
+        'protein_consumed': round(total_pro, 1),
+        'carbs_consumed': round(total_car, 1),
+        'fat_consumed': round(total_fat_v, 1),
+        'calorie_target': calorie_target_value,
+        'protein_target': protein_target,
+        'carbs_target': carbs_target,
+        'fat_target': fat_target,
+        'calorie_pct': min(100, int(total_cal / calorie_target_value * 100)),
         'trend_json': json.dumps(trend),
         'trend_data': trend,
         'foods': foods,

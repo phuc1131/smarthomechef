@@ -34,7 +34,7 @@ _EXPECTED_TERMS: Dict[str, Set[str]] = {
     'greeting': {'xin chao', 'chao', 'hello', 'hi'},
     'price': {'gia', 'chi phi', 'tong', 'uoc tinh', 'khong co du lieu gia', 'vnd', 'dong'},
     'meal_plan': {'thuc don', 'bua', 'sang', 'trua', 'toi', 'ngay', 'menu'},
-    'recipe': {'nguyen lieu', 'buoc', 'cach lam', 'huong dan', 'cong thuc'},
+    'recipe': {'nguyen lieu', 'buoc', 'cach lam', 'huong dan', 'cong thuc', 'nau', 'lam', 'che bien', 'ga', 'thit', 'ca', 'rau', 'trung', 'tom', 'bo', 'heo', 'mon', 'com', 'canh', 'sup', 'chao', 'pho', 'bun', 'mien', 'banh', 'xao', 'chien', 'luoc', 'hap', 'kho', 'rang'},
     'nutrition': {'calo', 'kcal', 'protein', 'carb', 'fat', 'dinh duong'},
     'shopping': {'danh sach mua', 'shopping', 'can mua', 'nguyen lieu'},
     'ingredient': {'nguyen lieu', 'thanh phan', 'ingredient'},

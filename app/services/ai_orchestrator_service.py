@@ -194,11 +194,31 @@ class AIOrchestratorService:
 
     @staticmethod
     def classify_intent(user_text: str) -> Tuple[Optional[Any], float]:
+        normalized_text = normalize_chat_text(user_text)
+        meal_plan_priority_terms = (
+            'thuc don', 'thực đơn', 'meal plan', 'menu', 'lap thuc don', 'lập thực đơn',
+            'tao thuc don', 'tạo thực đơn', 'len thuc don', 'lên thực đơn',
+            'hom nay', 'hôm nay', 'ngay nay', 'ngày nay',
+            'ngan sach', 'ngân sách', 'budget', '50k', '100k', 'chi phi', 'chi phí',
+            'theo ngay', 'theo ngày', 'cho ngay', 'cho ngày', 'moi ngay', 'mỗi ngày',
+        )
+        meal_plan_action_terms = (
+            'tao', 'tạo', 'lap', 'lập', 'len', 'lên', 'xay dung', 'xây dựng', 'goi y', 'gợi ý',
+        )
+        if normalized_text and any(term in normalized_text for term in meal_plan_priority_terms):
+            if any(term in normalized_text for term in meal_plan_action_terms):
+                meal_plan_intent = AIOrchestratorService._resolve_intent_record('meal_plan')
+                if meal_plan_intent:
+                    return meal_plan_intent, 0.95
+
         db_intent, db_confidence, _db_evidence = AIOrchestratorService._db_intent_signal(user_text)
         if db_intent and db_confidence >= 0.72:
             return db_intent, db_confidence
 
-        local_llm_prediction = classify_intent_with_local_llm(user_text)
+        try:
+            local_llm_prediction = classify_intent_with_local_llm(user_text)
+        except Exception:
+            local_llm_prediction = None
         if local_llm_prediction:
             intent = AIOrchestratorService._resolve_intent_record(local_llm_prediction.get('intent'))
             if intent:

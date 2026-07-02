@@ -24,8 +24,18 @@ body {
 }
 
 .sidebar-brand {
-  padding: 1.5rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .sidebar-brand h5 {
@@ -122,6 +132,42 @@ body {
 .account-menu .dropdown-item {
   font-size: 0.88rem;
 }
+
+/* Follow checkmark on calendar days */
+.follow-checkmark {
+  display: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-left: 4px;
+  vertical-align: middle;
+  transition: transform 0.15s;
+}
+.follow-checkmark:hover {
+  transform: scale(1.25);
+}
+.calendar-day-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 24px;
+}
+.calendar-day.today .calendar-day-num span:first-child {
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.plan-badge {
+  cursor: pointer;
+}
+/* End follow checkmark styles */
 
 .sidebar-nav a {
   display: flex;

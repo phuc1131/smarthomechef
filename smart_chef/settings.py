@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -124,6 +125,9 @@ WSGI_APPLICATION = 'smart_chef.wsgi.application'
 
 def build_database_config():
     database_url = os.environ.get('DATABASE_URL', '').strip()
+    is_pytest_run = any('pytest' in arg.lower() for arg in sys.argv)
+    if is_pytest_run:
+        database_url = ''
     if database_url:
         return {
             'default': dj_database_url.parse(database_url, conn_max_age=600),
@@ -170,6 +174,15 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
     BASE_DIR / 'smart_chef' / 'templates',
 ]
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

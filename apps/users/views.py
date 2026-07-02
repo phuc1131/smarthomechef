@@ -766,10 +766,41 @@ def dashboard(request):
 
     # Daily targets (from UserGoal or defaults)
     user_goal = UserGoal.objects.filter(account=account).first()
-    target_calories = user_goal.calories_target if user_goal else 2000
-    target_protein = user_goal.protein_target if user_goal else 150
-    target_carbs = user_goal.carbs_target if user_goal else 250
-    target_fat = user_goal.fat_target if user_goal else 67
+    profile = get_profile(request) if 'get_profile' in globals() else None
+    daily_cal = 2000
+    if user_goal:
+        try:
+            daily_cal = int(getattr(user_goal, 'daily_calorie_target', 0) or 0)
+        except Exception:
+            daily_cal = 0
+    if not daily_cal and profile:
+        try:
+            daily_cal = int(getattr(profile, 'daily_calorie_target', 0) or 0)
+        except Exception:
+            daily_cal = 2000
+    daily_cal = daily_cal or 2000
+    weight = 70
+    if profile:
+        try:
+            weight = float(getattr(profile, 'weight', 0) or 70)
+        except Exception:
+            weight = 70
+    target_protein = round(weight * 1.6, 1)
+    target_carbs = round(daily_cal * 0.5 / 4, 1)
+    target_fat = round(daily_cal * 0.3 / 9, 1)
+    target_calories = daily_cal
+    if user_goal:
+        try:
+            raw = getattr(user_goal, 'target_macros', None)
+            if isinstance(raw, dict) and raw:
+                if raw.get('protein'):
+                    target_protein = round(daily_cal * (float(raw['protein']) / 100.0) / 4, 1)
+                if raw.get('carbs'):
+                    target_carbs = round(daily_cal * (float(raw['carbs']) / 100.0) / 4, 1)
+                if raw.get('fat'):
+                    target_fat = round(daily_cal * (float(raw['fat']) / 100.0) / 9, 1)
+        except Exception:
+            pass
 
     # Progress percentages
     calories_progress = min(100, (total_calories / target_calories * 100) if target_calories else 0)

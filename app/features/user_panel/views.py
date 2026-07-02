@@ -47,6 +47,7 @@ from app.services.personalization_service import (
 )
 from app.services.external_apis import (
     AI_AVAILABLE,
+    OLLAMA_READY,
     generate_basic_chat_reply_with_local_llm,
     call_gemini_with_debug as _service_call_gemini_with_debug,
     get_spoonacular_last_error as _get_spoonacular_last_error,
@@ -161,6 +162,36 @@ def _log_rejected_ai_response(account, chat_session, user_text, intent_name, pro
         pass
 
 
+def _make_tool_use_system_instruction(request_analysis):
+    guard = request_analysis or {}
+    topic = guard.get('topic_name') or guard.get('topic') or 'general'
+    rules = [
+        'Tra loi dung chủ đề hiện tại, không lan man sang chủ đề khác.',
+        'Nếu cần tra cứu dữ liệu, hãy gọi công cụ phù hợp.',
+        'Không hiển thị confidence, query_sim hay các chỉ số kỹ thuật.',
+    ]
+    return 'Chủ đề: ' + str(topic) + '. ' + ' '.join(rules)
+
+
+def _log_llm_tool_use_event(account, chat_session, user_text, intent_name, response_text):
+    try:
+        log_ai_request(
+            account=account,
+            chat_session=chat_session,
+            query_text=user_text,
+            normalized_query=_normalize_query(user_text),
+            intent_name=intent_name,
+            provider='llm_tool_use',
+            route_path='llm_tool_use',
+            decision='llm_autonomous',
+            latency_ms=0,
+            response_ok=True,
+            metadata={'tool_system': 'gemini_function_calling'},
+        )
+    except Exception:
+        pass
+
+
 def require_auth(request):
     if not REQUIRE_AUTH:
         return None
@@ -262,6 +293,18 @@ def _append_health_feedback(response_text, account, user_text):
     return response_text
 
 
+def _clean_reasons_for_display(reasons):
+    clean_reasons = []
+    for reason in reasons or []:
+        if not reason:
+            continue
+        reason_text = str(reason)
+        if 'query_sim' in reason_text or 'score' in reason_text or 'sim=' in reason_text:
+            continue
+        clean_reasons.append(reason_text)
+    return clean_reasons
+
+
 def _format_local_candidates_response(candidates):
     lines = []
     for item in candidates[:5]:
@@ -271,11 +314,7 @@ def _format_local_candidates_response(candidates):
         name = getattr(food, 'name', 'Món ăn')
         reasons = item.get('reasons') or []
         # Việt hóa lý do và loại bỏ thông tin kỹ thuật
-        clean_reasons = []
-        for r in reasons:
-            if 'query_sim' in r or 'score' in r:
-                continue
-            clean_reasons.append(r)
+        clean_reasons = _clean_reasons_for_display(reasons)
         
         reason_text = f' (phù hợp vì: {", ".join(clean_reasons)})' if clean_reasons else ''
         lines.append(f'- {name}{reason_text}')
@@ -371,7 +410,7 @@ def _build_gemini_system_context(account, user_text, intent_name=None, local_can
             name = getattr(food, 'name', 'Món ăn')
             # Loại bỏ score và các lý do kỹ thuật khỏi system context để AI không bắt chước
             reasons = item.get('reasons') or [] if isinstance(item, dict) else []
-            clean_reasons = [r for r in reasons if 'query_sim' not in r and 'score' not in r]
+            clean_reasons = _clean_reasons_for_display(reasons)
             reason_text = f' ({", ".join(clean_reasons)})' if clean_reasons else ''
             candidate_lines.append(f'* {name}{reason_text}')
         system_context += (
@@ -523,7 +562,7 @@ def _get_food_recommendations_response(account, user_text):
         name = getattr(food, 'name', 'Món ăn')
         reasons = item.get('reasons') or []
         # Lọc bỏ thông tin kỹ thuật
-        clean_reasons = [r for r in reasons if 'query_sim' not in r and 'score' not in r]
+        clean_reasons = _clean_reasons_for_display(reasons)
         reason_text = '; '.join(clean_reasons) if clean_reasons else ''
         lines.append(f'- {name}' + (f' ({reason_text})' if reason_text else ''))
 
@@ -569,22 +608,87 @@ def _get_nutrition_summary_response(account):
     )
 
 
+
+def _extract_dish_name_from_query(text):
+    """Trich xuat ten mon an tu cau hoi cua nguoi dung."""
+    if not text:
+        return ''
+    try:
+        from app.services.intent_classifier import extract_dish_name
+        dish = extract_dish_name(text)
+        if dish:
+            return dish
+    except Exception:
+        pass
+    cleaned = str(text).lower()
+    for word in [
+        'công thức', 'cong thuc', 'cách làm', 'cach lam', 'hướng dẫn', 'huong dan',
+        'cho tôi biết', 'cho toi biet', 'chỉ tôi', 'chi toi',
+        'làm thế nào', 'lam the nao', 'nấu như thế nào', 'nau nhu the nao',
+        'chế biến', 'che bien', 'làm món', 'lam mon', 'nấu món', 'nau mon',
+        'recipe', 'của', 'cua', 'món', 'mon',
+    ]:
+        cleaned = cleaned.replace(word, '')
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ?!.,:;-')
+    return cleaned.strip()
+
+
+def _looks_like_recipe_request(user_text):
+    text = (user_text or '').strip().lower()
+    if not text:
+        return False
+    normalized = unicodedata.normalize('NFKD', text)
+    normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    keywords = [
+        'cong thuc', 'cach lam', 'huong dan', 'recipe', 'nau mon', 'lam mon', 'che bien',
+    ]
+    return any(keyword in normalized for keyword in keywords)
+
+
+
 def _get_recipe_response(user_text, account):
     query = (user_text or '').strip()
     if not query:
         return None
 
-    recipes = Recipe.objects.filter(
-        Q(title__icontains=query) | Q(summary__icontains=query) | Q(instructions__icontains=query)
+    dish_name = _extract_dish_name_from_query(user_text) or query
+    if not dish_name:
+        dish_name = query
+
+    recipes = Recipe.objects.select_related('food').filter(
+        Q(title__icontains=dish_name)
+        | Q(food__name__icontains=dish_name)
+        | Q(summary__icontains=dish_name)
+        | Q(instructions__icontains=dish_name)
     ).order_by('-created_at')[:3]
 
     if recipes:
-        lines = [f'- {recipe.title}' for recipe in recipes]
-        return (
-            'Mình tìm thấy các công thức phù hợp:\n' + '\n'.join(lines) +
-            '\nBạn có thể vào trang công thức để xem chi tiết hoặc hỏi thêm về cách nấu từng món.'
-        )
+        primary = recipes[0]
+        food = getattr(primary, 'food', None)
+        dish_title = (getattr(primary, 'title', None) or getattr(food, 'name', None) or dish_name).strip()
+        ingredients = _extract_recipe_ingredients(primary, food)[:10] if food else []
+        steps = _extract_instruction_steps(primary)[:6]
+
+        lines = [f'Cong thuc {dish_title}:']
+        if ingredients:
+            lines.append('Nguyen lieu:')
+            lines.extend([f'- {item}' for item in ingredients])
+        else:
+            lines.append('Nguyen lieu: hien chua co danh sach chi tiet trong du lieu.')
+
+        if steps:
+            lines.append('Cach lam:')
+            lines.extend([f'{idx}. {step}' for idx, step in enumerate(steps, 1)])
+        else:
+            lines.append('Cach lam: hien chua co huong dan tung buoc trong du lieu.')
+
+        other_recipes = [r.title for r in recipes[1:] if getattr(r, 'title', None)]
+        if other_recipes:
+            lines.append('Ban co the tham khao them: ' + ', '.join(other_recipes[:2]))
+
+        return '\n'.join(lines)
     return None
+
 
 
 def _get_shopping_list_response(account):
@@ -638,6 +742,17 @@ def _get_ingredient_lookup_response(user_text, account):
 
 
 def _route_chat_intent(intent, user_text, account, chat_session):
+    if _looks_like_recipe_request(user_text):
+        recipe_text = _get_recipe_response(user_text, account)
+        if recipe_text:
+            return {'response': recipe_text}
+        return {
+            'response': (
+                'Mình hiểu bạn đang hỏi công thức, nhưng mình chưa tìm thấy món khớp trong dữ liệu hiện có. '
+                'Bạn có thể ghi rõ tên món, ví dụ: "công thức mì ý sốt bò bằm".'
+            )
+        }
+
     if not intent:
         return None
     intent_name = (getattr(intent, 'name', '') or '').lower().strip()
@@ -1184,12 +1299,19 @@ def _handle_database_first_chat_query(account, user_text):
         if intent_name in {BUDGET_MEAL_PLAN, GENERAL_MEAL_PLAN}:
             role = (getattr(account, 'role', '') or '').strip().lower()
             if not account or role == 'guest':
-                return {
-                    'success': False,
-                    'intent': intent_name,
-                    'response': 'Bạn cần đăng nhập để mình có thể tạo và lưu thực đơn theo hồ sơ cá nhân.',
-                }
-
+                try:
+                    from app.services.external_apis import generate_basic_chat_reply_with_local_llm, OLLAMA_READY
+                    if OLLAMA_READY:
+                        ai_response = generate_basic_chat_reply_with_local_llm(
+                            user_text,
+                            context_text='Ban la chuyen gia am thuc. Nguoi dung khach muon tao thuc don. Hay goi y thuc don chi tiet bang tieng Viet voi cac mon an cu the.',
+                            max_output_tokens=1024,
+                        )
+                        if ai_response:
+                            return {'success': True, 'intent': intent_name, 'response': ai_response}
+                except Exception:
+                    pass
+                return {'success': False, 'intent': intent_name, 'response': 'Ban can dang nhap de luu thuc don. Minh co the goi y mon an!'}
             result = MealPlanGeneratorService.generate_meal_plan(
                 account=account,
                 request_text=user_text,
@@ -1484,6 +1606,45 @@ def chat_send(request):
                 payload['meal_plan_url'] = db_first_response.get('meal_plan_url', '/thuc-don/')
             return JsonResponse(payload)
 
+        if AI_AVAILABLE and OLLAMA_READY:
+            try:
+                from app.services.llm_tool_orchestrator import call_llm_with_tools_qwen
+                from app.services.tool_registry import get_tools_schema
+
+                tools = get_tools_schema()
+                llm_response = call_llm_with_tools_qwen(
+                    chat_session,
+                    user_text,
+                    tools,
+                    system_instruction=_make_tool_use_system_instruction(request_analysis),
+                )
+                if llm_response:
+                    response_text = str(getattr(llm_response, 'content', llm_response)).strip()
+                    if (
+                        response_text
+                        and not _is_invalid_chat_response(response_text)
+                        and _response_matches_current_request(
+                            account,
+                            chat_session,
+                            user_text,
+                            response_text,
+                            intent_name,
+                            'llm_tool_use',
+                            analysis=request_analysis,
+                        )
+                    ):
+                        response_text = _append_health_feedback(response_text, account, user_text)
+                        msg = ChatMessage.objects.create(session=chat_session, role='assistant', content=response_text)
+                        _log_chat_search_event(account, user_text, response_text)
+                        _log_llm_tool_use_event(account, chat_session, user_text, intent_name, response_text)
+                        return JsonResponse({
+                            'role': msg.role,
+                            'content': msg.content,
+                            'orchestrator_path': 'llm_tool_use',
+                        })
+            except Exception:
+                logger.exception('llm_tool_use path failed')
+
         intent, confidence = classify_intent(user_text)
         intent_name = getattr(intent, 'name', None) if intent else ''
         request_analysis = analyze_user_request(user_text, intent_name=intent_name)
@@ -1565,7 +1726,7 @@ def chat_send(request):
                 )
                 return JsonResponse({'role': msg.role, 'content': msg.content})
 
-        # 3. Sử dụng AI (Gemini/Local RAG)
+        # 4. Sử dụng AI (Gemini/Local RAG)
         if AI_AVAILABLE:
             from app.services.external_apis import save_chat_response_to_cache
 
@@ -1712,10 +1873,30 @@ def chat_send(request):
                         'orchestrator_path': route_path or 'gemini',
                     })
 
-        # 4. Fallback: Keyword Hardcoded hoặc Database
+        # 4. Ollama Direct Chat Fallback (flexible response for any query)
+        ollama_fallback_text = None
+        if OLLAMA_READY:
+            try:
+                from app.services.external_apis import generate_basic_chat_reply_with_local_llm
+                ollama_fallback_text = generate_basic_chat_reply_with_local_llm(
+                    user_text,
+                    context_text=(
+                        'Nguoi dung hoi ve am thuc, nau an, thuc don hoac dinh duong. '
+                        'Hay tra loi truc tiep, huu ich, bang tieng Viet. '
+                        'Neu ho yeu cau cong thuc, hay dua ra huong dan tung buoc. '
+                        'Hay than thien, nhiet tinh nhu mot nguoi noi tro.'
+                    ),
+                    max_output_tokens=1024,
+                )
+            except Exception:
+                pass
+
+        # 5. Fallback: Keyword Hardcoded hoặc Database
         hardcoded_result = _search_keyword_hardcoded(user_text, account)
         if hardcoded_result:
             response_text = hardcoded_result
+        elif ollama_fallback_text:
+            response_text = ollama_fallback_text
         else:
             response_text = _build_ai_quota_fallback_response(account, user_text)
 
@@ -2707,3 +2888,8 @@ def auth_me(request):
         'email': request.session.get('user_email', ''),
         'avatar': request.session.get('user_avatar', ''),
     })
+
+
+def meal_plan_toggle_follow(request):
+    from django.http import JsonResponse
+    return JsonResponse({'success': False, 'error': 'Chua duoc trien khai'})

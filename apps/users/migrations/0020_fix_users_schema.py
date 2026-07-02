@@ -28,19 +28,4 @@ class Migration(migrations.Migration):
             name='created_at',
             field=models.DateTimeField(auto_now_add=True),
         ),
-        migrations.RunSQL(
-            sql=[
-                "ALTER TABLE users ALTER COLUMN email DROP NOT NULL;",
-                "ALTER TABLE users ALTER COLUMN role SET DEFAULT 'user';",
-                "ALTER TABLE users ALTER COLUMN is_active SET DEFAULT true;",
-                "ALTER TABLE users ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;",
-                "DROP INDEX IF EXISTS users_email_0ea73cca_uniq;",
-            ],
-            reverse_sql=[
-                "ALTER TABLE users ALTER COLUMN role DROP DEFAULT;",
-                "ALTER TABLE users ALTER COLUMN is_active DROP DEFAULT;",
-                "ALTER TABLE users ALTER COLUMN created_at DROP DEFAULT;",
-                "CREATE UNIQUE INDEX IF NOT EXISTS users_email_0ea73cca_uniq ON public.users USING btree (email);",
-            ],
-        ),
     ]

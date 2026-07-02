@@ -60,6 +60,83 @@ class MealPlanGeneratorService:
     }
     
     @staticmethod
+    def _get_user_nutrition_targets(user_context, plan_days=1):
+        """
+        Tính mục tiêu dinh dưỡng tuyệt đối (calo + macro) cho user.
+        """
+        profile = user_context.get('profile')
+        profile_data = user_context.get('profile_data') or {}
+        goals = user_context.get('goals') or []
+
+        preference_profile = user_context.get('preferences')
+        pref_calories = None
+        pref_macros = None
+        if preference_profile:
+            try:
+                pref_calories = int(getattr(preference_profile, 'target_calories', None) or 0)
+            except Exception:
+                pref_calories = None
+            pref_macros = getattr(preference_profile, 'target_macros', None) or None
+
+        user_goal = goals[0] if goals else None
+        goal_calories = None
+        goal_macros = None
+        if user_goal:
+            try:
+                goal_calories = int(getattr(user_goal, 'daily_calorie_target', None) or 0)
+            except Exception:
+                goal_calories = None
+            try:
+                raw = getattr(user_goal, 'target_macros', None)
+                if isinstance(raw, dict) and any(raw.values()):
+                    goal_macros = raw
+            except Exception:
+                goal_macros = None
+
+        profile_calories = None
+        if profile:
+            try:
+                profile_calories = int(getattr(profile, 'daily_calorie_target', None) or 0)
+            except Exception:
+                profile_calories = None
+
+        daily_calories = pref_calories or goal_calories or profile_calories or 2000
+
+        health_goal = (profile_data.get('health_goal') or 'maintain').lower()
+        if pref_macros and isinstance(pref_macros, dict):
+            protein_ratio, carbs_ratio, fat_ratio = (
+                float(pref_macros.get('protein', 20) or 20) / 100.0,
+                float(pref_macros.get('carbs', 50) or 50) / 100.0,
+                float(pref_macros.get('fat', 30) or 30) / 100.0,
+            )
+        elif goal_macros and isinstance(goal_macros, dict):
+            protein_ratio, carbs_ratio, fat_ratio = (
+                float(goal_macros.get('protein', 20) or 20) / 100.0,
+                float(goal_macros.get('carbs', 50) or 50) / 100.0,
+                float(goal_macros.get('fat', 30) or 30) / 100.0,
+            )
+        else:
+            if 'weight_loss' in health_goal or 'giảm cân' in health_goal or 'giam can' in health_goal:
+                protein_ratio, carbs_ratio, fat_ratio = 0.30, 0.40, 0.30
+            elif 'muscle_gain' in health_goal or 'tăng cơ' in health_goal or 'tang co' in health_goal:
+                protein_ratio, carbs_ratio, fat_ratio = 0.30, 0.50, 0.20
+            elif 'energy_boost' in health_goal or 'tăng năng lượng' in health_goal:
+                protein_ratio, carbs_ratio, fat_ratio = 0.25, 0.55, 0.20
+            else:
+                protein_ratio, carbs_ratio, fat_ratio = 0.20, 0.50, 0.30
+
+        total_protein = (daily_calories * protein_ratio) / 4.0
+        total_carbs = (daily_calories * carbs_ratio) / 4.0
+        total_fat = (daily_calories * fat_ratio) / 9.0
+
+        return {
+            'calories': float(daily_calories * plan_days),
+            'protein': float(total_protein * plan_days),
+            'carbs': float(total_carbs * plan_days),
+            'fat': float(total_fat * plan_days),
+        }
+
+    @staticmethod
     def _user_goal_codes(user_context):
         codes = set()
         if not user_context:
@@ -495,7 +572,7 @@ class MealPlanGeneratorService:
         normalized = MealPlanGeneratorService._normalize_for_match(request_text)
 
         if explicit_budget is not None:
-            if re.search(r'(\/\s*ngay|\bngay\b)', normalized):
+            if re.search(r'\b\d+\s*(k|nghin|ngan|trieu|vnd|d)\s*(moi\s+)?ngay\b', normalized):
                 daily_budget = float(explicit_budget)
                 total_budget = float(explicit_budget) * max(plan_days, 1)
             else:
@@ -545,6 +622,120 @@ class MealPlanGeneratorService:
         if meal_budget is not None and float(total_cost) > float(meal_budget):
             return False, info
         return True, info
+
+    @staticmethod
+    def _get_food_nutrients(food):
+        """Lấy dinh dưỡng của 1 Food dưới dạng dict {calories, protein, carbs, fat}."""
+        return {
+            'calories': float(getattr(food, 'calories', 0) or 0),
+            'protein': float(getattr(food, 'protein', 0) or 0),
+            'carbs': float(getattr(food, 'carbs', 0) or 0),
+            'fat': float(getattr(food, 'fat', 0) or 0),
+        }
+
+    @staticmethod
+    def _optimize_servings_for_targets(
+        targets,
+        foods,
+        initial_servings,
+        bounds,
+        lambd=0.05,
+        max_iter=200,
+        tol=1e-4,
+    ):
+        """Tối ưu servings bằng Coordinate Descent + backtracking để khớp targets."""
+        n = len(foods)
+        if n == 0:
+            return list(initial_servings)
+
+        def _nutrients_at(servings_list):
+            cal = protein = carbs = fat = 0.0
+            for s, food in zip(servings_list, foods):
+                n_ = MealPlanGeneratorService._get_food_nutrients(food)
+                cal += n_['calories'] * s
+                protein += n_['protein'] * s
+                carbs += n_['carbs'] * s
+                fat += n_['fat'] * s
+            return cal, protein, carbs, fat
+
+        def _loss(servings_list):
+            cal, protein, carbs, fat = _nutrients_at(servings_list)
+            loss = (
+                1.0 * (cal - targets['calories']) ** 2
+                + 4.0 * (protein - targets['protein']) ** 2
+                + 4.0 * (carbs - targets['carbs']) ** 2
+                + 9.0 * (fat - targets['fat']) ** 2
+            )
+            for i in range(n):
+                loss += lambd * (servings_list[i] - 1.0) ** 2
+            return loss
+
+        def _grad_at(servings_list, idx):
+            cal, protein, carbs, fat = _nutrients_at(servings_list)
+            n_ = MealPlanGeneratorService._get_food_nutrients(foods[idx])
+            d_cal = n_['calories']
+            d_protein = n_['protein']
+            d_carbs = n_['carbs']
+            d_fat = n_['fat']
+            wcal = 2.0 * 1.0 * (cal - targets['calories']) * d_cal
+            wpro = 2.0 * 4.0 * (protein - targets['protein']) * d_protein
+            wcar = 2.0 * 4.0 * (carbs - targets['carbs']) * d_carbs
+            wfat = 2.0 * 9.0 * (fat - targets['fat']) * d_fat
+            reg = 2.0 * lambd * (servings_list[idx] - 1.0)
+            return wcal + wpro + wcar + wfat + reg
+
+        x = [float(s) for s in initial_servings]
+        prev_loss = _loss(x)
+
+        for _ in range(max_iter):
+            improved = False
+            for idx in range(n):
+                lo, hi = bounds[idx]
+                grad = _grad_at(x, idx)
+                if abs(grad) < tol:
+                    continue
+
+                step_size = 1.0
+                while step_size > 1e-6:
+                    candidate = max(lo, min(hi, x[idx] - step_size * grad))
+                    if candidate <= 0:
+                        candidate = lo
+                    new_x = list(x)
+                    new_x[idx] = candidate
+                    new_loss = _loss(new_x)
+                    if new_loss < prev_loss:
+                        x[idx] = candidate
+                        prev_loss = new_loss
+                        improved = True
+                        break
+                    step_size *= 0.5
+            if not improved:
+                break
+
+        return [round(max(bounds[i][0], min(bounds[i][1], x[i])), 2) for i in range(n)]
+
+    @staticmethod
+    def _calculate_meal_plan_loss(targets, foods, servings):
+        """Tính loss của 1 thực đơn: sai số macro + regularization."""
+        n = len(foods)
+        cal = protein = carbs = fat = 0.0
+        for i in range(n):
+            n_ = MealPlanGeneratorService._get_food_nutrients(foods[i])
+            s = float(servings[i])
+            cal += n_['calories'] * s
+            protein += n_['protein'] * s
+            carbs += n_['carbs'] * s
+            fat += n_['fat'] * s
+
+        loss = (
+            1.0 * (cal - targets['calories']) ** 2
+            + 4.0 * (protein - targets['protein']) ** 2
+            + 4.0 * (carbs - targets['carbs']) ** 2
+            + 9.0 * (fat - targets['fat']) ** 2
+        )
+        for i in range(n):
+            loss += 0.05 * (float(servings[i]) - 1.0) ** 2
+        return loss
 
     @staticmethod
     def _select_food_for_meal(foods, meal_key, budget_context):
@@ -1093,6 +1284,8 @@ class MealPlanGeneratorService:
             profile = user_context.get('profile_data', {})
             diseases = user_context.get('diseases', [])
             preferences = user_context.get('preferences')
+            targets = MealPlanGeneratorService._get_user_nutrition_targets(user_context, plan_days=1)
+            used_food_ids = set(user_context.get('recent_food_ids', []))
             
             system_instruction = (
                 'Bạn là chuyên gia dinh dưỡng của Smart Home Chef. '
@@ -1145,25 +1338,23 @@ class MealPlanGeneratorService:
                     'api_used': True,
                 }
             
-            # Bước 4: Query foods từ DB dựa trên gợi ý Gemini
+            # Bước 4: Query foods từ DB dựa trên gợi ý Gemini + tối ưu macro
             meal_plans = []
             meal_order = ['breakfast', 'lunch', 'dinner', 'snack']
-            
+            day_candidates = []
+
             for meal_key in meal_order:
                 suggestions = recommendations.get(meal_key, [])
                 if not suggestions:
                     continue
-                
-                # Tìm food từ DB match với suggestion
+
                 selected_food = None
                 for suggestion in suggestions:
-                    # Search by name match
                     food_match = Food.objects.filter(
                         name__icontains=suggestion
                     ).exclude(id__in=user_context.get('recent_food_ids', [])).first()
-                    
+
                     if not food_match:
-                        # Thử tìm partial match
                         words = suggestion.split()
                         for word in words:
                             if len(word) > 3:
@@ -1172,12 +1363,11 @@ class MealPlanGeneratorService:
                                 ).exclude(id__in=user_context.get('recent_food_ids', [])).first()
                                 if food_match:
                                     break
-                    
+
                     if food_match:
                         selected_food = food_match
                         break
-                
-                # Nếu không tìm được, lấy food random phù hợp từ DB
+
                 if not selected_food:
                     q_filter = MealPlanGeneratorService.build_food_filter(user_context, analyzed_request['type'])
                     selected_food = Food.objects.filter(q_filter).exclude(
@@ -1205,30 +1395,38 @@ class MealPlanGeneratorService:
                         meal_key=meal_key,
                         target_date=target_date,
                     )
-                
+
                 if not selected_food:
                     continue
-                
-                # Tính servings
-                meal_vi, min_cal, max_cal = MealPlanGeneratorService.MEAL_TYPES[meal_key]
-                servings = 1.0
-                food_cal = float(selected_food.calories or 0)
-                if food_cal > 0:
-                    target_cal = (max_cal + min_cal) / 2
-                    servings = target_cal / food_cal
-                    servings = round(servings, 2)
-                
-                # Tạo MealPlan
-                plan = MealPlan.objects.create(
-                    account=account,
-                    food=selected_food,
-                    date=target_date,
-                    meal_type=meal_vi,
-                    servings=Decimal(str(servings)),
-                    notes=f'AI-generated fallback ({analyzed_request["type"]} plan): {request_text}'
+
+                day_candidates.append({
+                    'meal_key': meal_key,
+                    'food': selected_food,
+                    'initial_servings': 1.0,
+                    'servings_bounds': (0.25, 5.0),
+                })
+
+            if day_candidates:
+                day_foods = [item['food'] for item in day_candidates]
+                day_initial = [float(item['initial_servings']) for item in day_candidates]
+                day_bounds = [item['servings_bounds'] for item in day_candidates]
+                day_optimized = MealPlanGeneratorService._optimize_servings_for_targets(
+                    targets, day_foods, day_initial, day_bounds, lambd=0.05,
                 )
-                meal_plans.append(plan)
-            
+                for item, servings in zip(day_candidates, day_optimized):
+                    meal_vi, min_cal, max_cal = MealPlanGeneratorService.MEAL_TYPES[item['meal_key']]
+                    plan = MealPlan.objects.create(
+                        account=account,
+                        food=item['food'],
+                        date=target_date,
+                        meal_type=meal_vi,
+                        servings=Decimal(str(servings)),
+                        notes=f'AUTO_PLAN macro optimized ({analyzed_request["type"]} plan): {request_text}',
+                    )
+                    meal_plans.append(plan)
+                    used_food_ids.add(item['food'].id)
+
+            # Bước 5: Tối ưu macro trước khi trả về
             if not meal_plans:
                 return {
                     'success': False,
@@ -1344,10 +1542,19 @@ class MealPlanGeneratorService:
             api_fallback_used = False
             skipped_budget_reasons = []
 
+            targets = MealPlanGeneratorService._get_user_nutrition_targets(user_context, plan_days=plan_days)
+            daily_targets = {
+                'calories': float(targets.get('calories', 0.0)) / float(max(plan_days, 1)),
+                'protein': float(targets.get('protein', 0.0)) / float(max(plan_days, 1)),
+                'carbs': float(targets.get('carbs', 0.0)) / float(max(plan_days, 1)),
+                'fat': float(targets.get('fat', 0.0)) / float(max(plan_days, 1)),
+            }
             # Bước 3-4: Lập meal plan cho từng ngày, ưu tiên món có giá/chi phí hợp lý
             for day_index in range(plan_days):
                 current_date = target_date + timedelta(days=day_index)
                 day_created = False
+                day_candidates = []
+                day_used_food_ids = set()
             
                 for meal_key in meal_order:
                     foods = MealPlanGeneratorService.query_foods_from_db(
@@ -1356,7 +1563,7 @@ class MealPlanGeneratorService:
                         meal_type=meal_key,
                         request_text=request_text,
                         limit=10,
-                        exclude_food_ids=used_food_ids,
+                        exclude_food_ids=used_food_ids | day_used_food_ids,
                     )
                     selected_food, selected_cost_info = MealPlanGeneratorService._select_food_for_meal(
                         foods,
@@ -1396,6 +1603,9 @@ class MealPlanGeneratorService:
                         if not selected_food:
                             continue
 
+                    if selected_food.id in day_used_food_ids:
+                        continue
+
                     if analyzed['type'] == 'budget' and not MealPlanGeneratorService._food_has_ingredient_details(selected_food):
                         continue
 
@@ -1415,32 +1625,45 @@ class MealPlanGeneratorService:
                         )
                         selected_food.refresh_from_db()
 
-                    meal_vi, min_cal, max_cal = MealPlanGeneratorService.MEAL_TYPES[meal_key]
+                    day_candidates.append({
+                        'meal_key': meal_key,
+                        'food': selected_food,
+                        'initial_servings': 1.0,
+                        'servings_bounds': (0.25, 5.0),
+                    })
+                    day_used_food_ids.add(selected_food.id)
 
-                    # Tính servings sao cho calories vừa target
-                    servings = 1.0
-                    food_cal = float(selected_food.calories or 0)
-                    if food_cal > 0:
-                        target_cal = (max_cal + min_cal) / 2
-                        servings = target_cal / food_cal
-                        servings = round(servings, 2)
-
-                    MealPlan.objects.filter(
-                        account=account,
-                        date=current_date,
-                        meal_type=meal_vi,
-                    ).delete()
-
-                    plan = MealPlan.objects.create(
-                        account=account,
-                        food=selected_food,
-                        date=current_date,
-                        meal_type=meal_vi,
-                        servings=Decimal(str(servings)),
-                        notes=f'[AUTO_PLAN] AI-generated ({analyzed["type"]} plan): {request_text}'
+                if len(day_candidates) == len(meal_order):
+                    day_foods = [item['food'] for item in day_candidates]
+                    day_initial = [float(item['initial_servings']) for item in day_candidates]
+                    day_bounds = [item['servings_bounds'] for item in day_candidates]
+                    day_optimized_servings = MealPlanGeneratorService._optimize_servings_for_targets(
+                        daily_targets,
+                        day_foods,
+                        day_initial,
+                        day_bounds,
+                        lambd=0.05,
                     )
-                    meal_plans.append(plan)
-                    used_food_ids.add(selected_food.id)
+
+                    for item, optimized_servings in zip(day_candidates, day_optimized_servings):
+                        meal_vi, _, _ = MealPlanGeneratorService.MEAL_TYPES[item['meal_key']]
+                        MealPlan.objects.filter(
+                            account=account,
+                            date=current_date,
+                            meal_type=meal_vi,
+                        ).delete()
+
+                        plan = MealPlan.objects.create(
+                            account=account,
+                            food=item['food'],
+                            date=current_date,
+                            meal_type=meal_vi,
+                            servings=Decimal(str(optimized_servings)),
+                            notes=f'[AUTO_PLAN] AI-generated macro optimized ({analyzed["type"]} plan): {request_text}'
+                        )
+                        meal_plans.append(plan)
+                        used_food_ids.add(item['food'].id)
+
                     day_created = True
 
                 if not day_created and plan_days == 1 and AI_AVAILABLE:

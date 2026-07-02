@@ -61,6 +61,9 @@ window.searchFoods = async function searchFoods(q) {
   if (!Array.isArray(data) || data.length === 0) {
     const msg = searchError || 'Không tìm thấy món phù hợp';
     sel.innerHTML = `<option value="">${msg}</option>`;
+    sel.selectedIndex = -1;
+    document.getElementById('cal-preview').style.display = 'none';
+    document.getElementById('cal-preview').innerHTML = '';
     return;
   }
   sel.innerHTML = data
@@ -69,15 +72,22 @@ window.searchFoods = async function searchFoods(q) {
         `<option value="${f.id}" data-cal="${f.calories}" data-serving="${f.serving_size}">${f.name} — ${Math.round(f.calories)} kcal</option>`
     )
     .join('');
+  sel.selectedIndex = -1;
+  updateCalPreview();
 };
 
 window.updateCalPreview = function updateCalPreview() {
   // Ước tính kcal theo thời gian thực: calories món chọn * số khẩu phần.
   const sel = document.getElementById('log-food');
-  const opt = sel.selectedOptions[0];
-  if (!opt) return;
-  const cal = parseFloat(opt.dataset.cal) * parseFloat(document.getElementById('log-servings').value || 1);
+  const opt = sel ? sel.selectedOptions[0] : null;
   const preview = document.getElementById('cal-preview');
+  if (!preview) return;
+  if (!opt || !opt.value || !opt.dataset.cal) {
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    return;
+  }
+  const cal = parseFloat(opt.dataset.cal || 0) * parseFloat(document.getElementById('log-servings').value || 1);
   preview.style.display = 'block';
   preview.innerHTML = `<i class="bi bi-fire me-1"></i>≈ <strong>${Math.round(cal)} kcal</strong>  ${
     opt.dataset.serving ? '· ' + opt.dataset.serving : ''

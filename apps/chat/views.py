@@ -26,6 +26,18 @@ from app.services.external_apis import (
 )
 from app.services.meal_plan_generator_service import MealPlanGeneratorService
 from app.services.ingredient_price_service import get_ai_price_context
+from app.services.ingredient_price_service import (
+    BUDGET_MEAL_PLAN,
+    GENERAL_MEAL_PLAN,
+    INGREDIENT_COST_QUERY,
+    PRICE_QUERY,
+    RECIPE_COST_QUERY,
+    classify_food_price_intent,
+    handle_multi_ingredient_cost_query,
+    handle_recipe_cost_query,
+    handle_single_ingredient_price_query,
+)
+from app.services.ai_chat_service import process_chat_message as process_api_chat_message
 from app.services.ai_orchestrator_service import AIOrchestratorService
 from app.services.personalization_service import (
     get_personalization_context,
@@ -354,6 +366,24 @@ def chat_send(request):
         msg = ChatMessage.objects.create(role='assistant', content=response_text, session=session)
         return JsonResponse({'role': msg.role, 'content': msg.content})
 
+    price_intent = classify_food_price_intent(user_text, account=account)
+    if price_intent in {PRICE_QUERY, INGREDIENT_COST_QUERY, RECIPE_COST_QUERY, BUDGET_MEAL_PLAN, GENERAL_MEAL_PLAN}:
+        if price_intent == PRICE_QUERY:
+            db_response = handle_single_ingredient_price_query(user_text)
+        elif price_intent == INGREDIENT_COST_QUERY:
+            db_response = handle_multi_ingredient_cost_query(user_text)
+        elif price_intent == RECIPE_COST_QUERY:
+            db_response = handle_recipe_cost_query(user_text)
+        else:
+            db_response = None
+
+        if db_response and db_response.get('response'):
+            msg = ChatMessage.objects.create(role='assistant', content=db_response['response'], session=session)
+            payload = {'role': msg.role, 'content': msg.content}
+            if db_response.get('intent'):
+                payload['intent'] = db_response['intent']
+            return JsonResponse(payload)
+
     if _is_meal_plan_request(user_text):
         result = MealPlanGeneratorService.generate_meal_plan(account, user_text)
         if result.get('success'):
@@ -483,13 +513,17 @@ def chat_send(request):
                            "Nếu không có dữ liệu giá, hãy thông báo rõ ràng cho người dùng rằng "
                            "'Chưa cập nhật dữ liệu giá cho [nguyên liệu]' thay vì trả lời chung chung.")
 
+    price_intent = classify_food_price_intent(user_text, account=account)
+    skip_cache_for_price = price_intent in {PRICE_QUERY, INGREDIENT_COST_QUERY, RECIPE_COST_QUERY, BUDGET_MEAL_PLAN, GENERAL_MEAL_PLAN}
+
     try:
         # Check cache first
         cache_result = None
-        try:
-            cache_result = get_or_create_chat_response_from_cache(account, user_text, source_intent=cash_intent_name)
-        except Exception:
-            cache_result = None
+        if not skip_cache_for_price:
+            try:
+                cache_result = get_or_create_chat_response_from_cache(account, user_text, source_intent=cash_intent_name)
+            except Exception:
+                cache_result = None
 
         if cache_result and _cache_intent_matches(cash_intent_name, cache_result.get('intent_name')):
             ai_text = cache_result.get('response') or ''
@@ -506,7 +540,15 @@ def chat_send(request):
                 f'{recent_history}\n'
                 f'Cau hoi hien tai cua nguoi dung: {user_text}'
             ).strip() or user_text
-            ai_text = generate_basic_chat_reply_with_local_llm(user_text, context_text=system_context)
+
+            routed_ai_text = ''
+            if cash_intent_name in {'recipe', 'nutrition'}:
+                try:
+                    routed_ai_text = process_api_chat_message(user_text)
+                except Exception:
+                    logger.exception('API chat routing failed for account_id=%s session_id=%s', getattr(account, 'id', None), getattr(session, 'id', None))
+
+            ai_text = routed_ai_text or generate_basic_chat_reply_with_local_llm(user_text, context_text=system_context)
             if not ai_text or _is_invalid_chat_response(ai_text):
                 ai_text = _gemini_generate_text(
                     prompt,
